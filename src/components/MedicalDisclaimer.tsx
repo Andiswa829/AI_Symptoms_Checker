@@ -91,7 +91,7 @@ export function MedicalDisclaimer({ onAccept, onBack }: MedicalDisclaimerProps) 
               <Checkbox 
                 id="notMedicalAdvice"
                 checked={agreements.notMedicalAdvice}
-                onCheckedChange={(checked) => handleAgreementChange("notMedicalAdvice", checked as boolean)}
+                onCheckedChange={(checked:boolean) => handleAgreementChange("notMedicalAdvice", checked as boolean)}
               />
               <label htmlFor="notMedicalAdvice" className="text-sm">
                 I understand this is not medical advice and will consult healthcare professionals for medical concerns
@@ -127,7 +127,7 @@ export function MedicalDisclaimer({ onAccept, onBack }: MedicalDisclaimerProps) 
               <Checkbox 
                 id="emergencyAwareness"
                 checked={agreements.emergencyAwareness}
-                onCheckedChange={(checked) => handleAgreementChange("emergencyAwareness", checked as boolean)}
+                onCheckedChange={(checked:boolean) => handleAgreementChange("emergencyAwareness", checked as boolean)}
               />
               <label htmlFor="emergencyAwareness" className="text-sm">
                 I understand when to seek emergency medical care and will not rely on this app for emergencies
@@ -160,7 +160,7 @@ export function MedicalDisclaimer({ onAccept, onBack }: MedicalDisclaimerProps) 
               <Checkbox 
                 id="dataPrivacy"
                 checked={agreements.dataPrivacy}
-                onCheckedChange={(checked) => handleAgreementChange("dataPrivacy", checked as boolean)}
+                onCheckedChange={(checked:boolean) => handleAgreementChange("dataPrivacy", checked as boolean)}
               />
               <label htmlFor="dataPrivacy" className="text-sm">
                 I consent to the collection and processing of my health data as described above
@@ -187,7 +187,7 @@ export function MedicalDisclaimer({ onAccept, onBack }: MedicalDisclaimerProps) 
               <Checkbox 
                 id="accurateInformation"
                 checked={agreements.accurateInformation}
-                onCheckedChange={(checked) => handleAgreementChange("accurateInformation", checked as boolean)}
+                onCheckedChange={(checked:boolean) => handleAgreementChange("accurateInformation", checked as boolean)}
               />
               <label htmlFor="accurateInformation" className="text-sm">
                 I will provide accurate and complete information to the best of my knowledge

@@ -6,20 +6,79 @@ import { Label } from './ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { Badge } from './ui/badge';
 import { Alert, AlertDescription } from './ui/alert';
-import { Trash2, Plus, ArrowLeft, ArrowRight, AlertTriangle, Info } from 'lucide-react';
-import type { Symptom, OutbreakData, LocationData } from '../App';
+import { Trash2, Plus, ArrowLeft, ArrowRight, AlertTriangle, Info, Activity, Heart, Thermometer } from 'lucide-react';
+import { Symptom } from '../types/doctor';
+import { OutbreakData, LocationData } from '../types/outbreaks';
 
 interface SymptomInputProps {
   symptoms: Symptom[];
-  onAddSymptom: (symptom: Omit<Symptom, 'id' | 'timestamp'>) => void;
+  onAddSymptom: (symptom: Omit<Symptom, 'id' | 'timestamp'> | Array<Omit<Symptom, 'id' | 'timestamp'>>) => void;
   onRemoveSymptom: (id: string) => void;
   onContinue: () => void;
   onBack: () => void;
+  onSubmit: (symptoms: Symptom[]) => Promise<void>;
+  isLoading: boolean;
+  isSubmitting: boolean;
   outbreakData: {
     global: OutbreakData[];
     local: OutbreakData[];
   };
   location: LocationData | null;
+  isGoogleHealthSynced?: boolean;
+  onAnalysisComplete?: (result: ApiResponse) => void;
+}
+
+interface PredictionRequest {
+  age: number;
+  weight: number;
+  glucoseLevel: number;
+  insulinLevel: number;
+  smokingHabit: string;
+  symptoms: string[];
+  systolicBP: number;
+  diastolicBP: number;
+  heartRate: number;
+  spO2: number;
+  temperature: number;
+  sleepQuality: string;
+  sleepDuration: number;
+  activitySteps: number;
+  activityCalories: number;
+  respiratoryRate: number;
+  stressLevel: string;
+}
+
+// Add the AnalyzeRequest interface alongside PredictionRequest
+interface AnalyzeRequest {
+  age: number;
+  gender: string;
+  symptoms: {
+    name: string;
+    severity: string;
+    duration: number;
+  }[];
+  additionalInfo?: string;
+}
+
+// Add interface for the API response
+interface ApiResponse {
+  success: boolean;
+  message: string;
+  data: {
+    primaryDiagnosis: string;
+    confidence: number;
+    confidenceLevel: string;
+    possibleConditions: Array<{
+      disease: string;
+      confidence: number;
+    }>;
+    recommendedActions: string[];
+    urgency: 'routine' | 'urgent' | 'emergency';
+    summary: string;
+    timestamp: string;
+    requiresImmediateAttention: boolean;
+  };
+  errors: string[];
 }
 
 export function SymptomInput({ 
@@ -28,13 +87,43 @@ export function SymptomInput({
   onRemoveSymptom, 
   onContinue, 
   onBack,
+  isSubmitting,
   outbreakData,
-  location
+  location,
+  onAnalysisComplete // Destructure the callback prop
 }: SymptomInputProps) {
+  // Existing symptom state
   const [description, setDescription] = useState('');
   const [severity, setSeverity] = useState<'mild' | 'moderate' | 'severe'>('mild');
   const [duration, setDuration] = useState('');
+  
+  // Health data state
+  const [age, setAge] = useState<number>(0);
+  const [weight, setWeight] = useState<number>(0);
+  const [glucoseLevel, setGlucoseLevel] = useState<number>(95);
+  const [insulinLevel, setInsulinLevel] = useState<number>(10);
+  const [smokingHabit, setSmokingHabit] = useState<string>('non-smoker');
+  const [systolicBP, setSystolicBP] = useState<number>(120);
+  const [diastolicBP, setDiastolicBP] = useState<number>(80);
+  const [heartRate, setHeartRate] = useState<number>(72);
+  const [spO2, setSpO2] = useState<number>(98);
+  const [temperature, setTemperature] = useState<number>(36.5);
+  const [sleepQuality, setSleepQuality] = useState<string>('good');
+  const [sleepDuration, setSleepDuration] = useState<number>(7);
+  const [activitySteps, setActivitySteps] = useState<number>(8000);
+  const [activityCalories, setActivityCalories] = useState<number>(250);
+  const [respiratoryRate, setRespiratoryRate] = useState<number>(16);
+  const [stressLevel, setStressLevel] = useState<string>('mild');
+  
+  const [currentStep, setCurrentStep] = useState<'symptoms' | 'health-data'>('symptoms');
+  const [isSubmittingPrediction, setIsSubmittingPrediction] = useState(false);
+  const [predictionResult, setPredictionResult] = useState<any>(null);
   const [relevantOutbreaks, setRelevantOutbreaks] = useState<OutbreakData[]>([]);
+
+  // Add gender and additionalInfo state
+  const [gender, setGender] = useState<string>('');
+  const [additionalInfo, setAdditionalInfo] = useState<string>('');
+  const [isGoogleHealthSynced, setIsGoogleHealthSynced] = useState(false); // Track sync status
 
   useEffect(() => {
     // Check for outbreaks that match current symptoms
@@ -42,7 +131,7 @@ export function SymptomInput({
     const symptomsText = symptoms.map(s => s.description.toLowerCase()).join(' ');
     
     const matches = allOutbreaks.filter(outbreak => {
-      return outbreak.symptoms?.some(outbreakSymptom => 
+      return outbreak.symptoms?.some((outbreakSymptom: string) => 
         symptomsText.includes(outbreakSymptom.toLowerCase()) ||
         outbreakSymptom.toLowerCase().includes(symptomsText.split(' ').find(word => word.length > 3) || '')
       );
@@ -51,16 +140,178 @@ export function SymptomInput({
     setRelevantOutbreaks(matches);
   }, [symptoms, outbreakData]);
 
+  // Update the handleAddSymptom function with debugging
   const handleAddSymptom = () => {
+    console.log('handleAddSymptom called');
+    console.log('Description:', description);
+    console.log('Duration:', duration);
+    
     if (description.trim() && duration.trim()) {
-      onAddSymptom({
-        description: description.trim(),
-        severity,
-        duration: duration.trim(),
-      });
+      // Check if description contains commas (multiple symptoms)
+      const symptomDescriptions = description.split(',').map(s => s.trim()).filter(s => s.length > 0);
+      
+      console.log('Symptom descriptions:', symptomDescriptions);
+      
+      if (symptomDescriptions.length > 1) {
+        // Multiple symptoms - create array and pass all at once
+        const multipleSymptoms = symptomDescriptions.map(symptomDesc => ({
+          description: symptomDesc,
+          severity,
+          duration: duration.trim(),
+        }));
+        
+        console.log('Adding multiple symptoms:', multipleSymptoms);
+        onAddSymptom(multipleSymptoms);
+      } else {
+        // Single symptom - add as before
+        console.log('Adding single symptom:', description.trim());
+        onAddSymptom({
+          description: description.trim(),
+          severity,
+          duration: duration.trim(),
+        });
+      }
+      
+      // Clear the form
       setDescription('');
       setDuration('');
       setSeverity('mild');
+      
+      console.log('Form cleared');
+    } else {
+      console.log('Validation failed - missing description or duration');
+    }
+  };
+
+  // Add helper function to parse duration
+  const parseDuration = (durationStr: string): number => {
+    const str = durationStr.toLowerCase();
+    if (str.includes('day')) {
+      const match = str.match(/(\d+)\s*day/);
+      return match ? parseInt(match[1]) : 1;
+    } else if (str.includes('week')) {
+      const match = str.match(/(\d+)\s*week/);
+      return match ? parseInt(match[1]) * 7 : 7;
+    } else if (str.includes('hour')) {
+      return 1; // Less than a day
+    } else if (str.includes('month')) {
+      const match = str.match(/(\d+)\s*month/);
+      return match ? parseInt(match[1]) * 30 : 30;
+    }
+    return 1; // Default to 1 day
+  };
+
+  // Update the handleSubmitPrediction function
+  const handleSubmitPrediction = async () => {
+    // Add validation before API call
+    if (symptoms.length < 3) {
+      alert('Please add at least 3 symptoms for accurate analysis.');
+      return;
+    }
+
+    setIsSubmittingPrediction(true);
+    
+    try {
+      let response;
+      
+      if (isGoogleHealthSynced) {
+        // Use the /predict API when Google Health is synced
+        const requestData: PredictionRequest = {
+          age,
+          weight,
+          glucoseLevel,
+          insulinLevel,
+          smokingHabit,
+          symptoms: symptoms.map(s => s.description),
+          systolicBP,
+          diastolicBP,
+          heartRate,
+          spO2,
+          temperature,
+          sleepQuality,
+          sleepDuration,
+          activitySteps,
+          activityCalories,
+          respiratoryRate,
+          stressLevel
+        };
+
+        response = await fetch('http://localhost:5051/api/Diagnosis/predict', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(requestData),
+        });
+      } else {
+        // Use the /analyze API when Google Health is not synced
+        const requestData: AnalyzeRequest = {
+          age,
+          gender,
+          symptoms: symptoms.map(s => ({
+            name: s.description,
+            severity: s.severity,
+            duration: parseDuration(s.duration)
+          })),
+          additionalInfo: additionalInfo || `Patient reports ${symptoms.length} symptoms. Location: ${location?.city || 'Unknown'}.`
+        };
+
+        console.log('Sending analyze request:', requestData); // Debug log
+
+        response = await fetch('http://localhost:5051/api/v2/Symptoms/analyze', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(requestData),
+        });
+      }
+
+      if (!response.ok) {
+        throw new Error(`API call failed: ${response.status} ${response.statusText}`);
+      }
+
+      const result: ApiResponse = await response.json();
+      
+      // Check if the API returned success
+      if (!result.success) {
+        const errorMessage = result.errors?.length > 0 
+          ? result.errors.join(', ') 
+          : result.message || 'Analysis failed';
+        throw new Error(errorMessage);
+      }
+
+      // Store the result and navigate to analysis page
+      if (result.success) {
+        setPredictionResult(result);
+        
+        // Call the callback to show the result modal
+        if (onAnalysisComplete) {
+          onAnalysisComplete(result);
+        } else {
+          onContinue(); // Fallback to direct navigation
+        }
+      }
+
+      // Optionally, you can also store in localStorage for persistence
+      localStorage.setItem('analysisResult', JSON.stringify({
+        result: result.data,
+        symptoms,
+        timestamp: result.data.timestamp,
+        apiUsed: isGoogleHealthSynced ? 'predict' : 'analyze'
+      }));
+
+    } catch (error) {
+      console.error('API error:', error);
+      
+      // Show user-friendly error message
+      const errorMessage = error instanceof Error 
+        ? error.message 
+        : `Failed to ${isGoogleHealthSynced ? 'get prediction' : 'analyze symptoms'}`;
+        
+      alert(`Analysis Error:\n${errorMessage}\n\nPlease try again or contact support if the problem persists.`);
+    } finally {
+      setIsSubmittingPrediction(false);
     }
   };
 
@@ -91,6 +342,363 @@ export function SymptomInput({
         return 'border-gray-500 bg-gray-50';
     }
   };
+
+  // Add helper function to get urgency color
+  const getUrgencyColor = (urgency: string) => {
+    switch (urgency) {
+      case 'emergency':
+        return 'border-red-500 bg-red-50 text-red-800';
+      case 'urgent':
+        return 'border-orange-500 bg-orange-50 text-orange-800';
+      case 'routine':
+        return 'border-green-500 bg-green-50 text-green-800';
+      default:
+        return 'border-gray-500 bg-gray-50 text-gray-800';
+    }
+  };
+
+  if (currentStep === 'health-data') {
+    return (
+      <div className="container mx-auto px-4 py-8 max-w-4xl">
+        <div className="mb-6">
+          <Button variant="outline" onClick={() => setCurrentStep('symptoms')} className="mb-4">
+            <ArrowLeft className="h-4 w-4 mr-2" />
+            Back to Symptoms
+          </Button>
+          <h1 className="text-3xl text-primary mb-2">Health Data Collection</h1>
+          <p className="text-muted-foreground">
+            Please provide your health information for accurate analysis
+          </p>
+        </div>
+
+        <div className="grid md:grid-cols-2 gap-6">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center">
+                <Activity className="h-5 w-5 mr-2" />
+                Basic Information
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <Label htmlFor="age">Age *</Label>
+                  <Input
+                    id="age"
+                    type="number"
+                    value={age || ''}
+                    onChange={(e) => setAge(Number(e.target.value))}
+                    placeholder="25"
+                    required
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="gender">Gender *</Label>
+                  <Select value={gender} onValueChange={setGender} required>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select gender" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="male">Male</SelectItem>
+                      <SelectItem value="female">Female</SelectItem>
+                      <SelectItem value="other">Other</SelectItem>
+                      <SelectItem value="prefer-not-to-say">Prefer not to say</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+              
+              {/* Google Health Sync Toggle */}
+              <div className="border rounded-lg p-4 bg-blue-50">
+                <div className="flex items-center justify-between mb-2">
+                  <Label htmlFor="googleHealthSync" className="text-sm font-medium">
+                    Sync Google Health Data
+                  </Label>
+                  <Button
+                    type="button"
+                    variant={isGoogleHealthSynced ? "default" : "outline"}
+                    size="sm"
+                    onClick={() => setIsGoogleHealthSynced(!isGoogleHealthSynced)}
+                  >
+                    {isGoogleHealthSynced ? "Synced" : "Sync Now"}
+                  </Button>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  {isGoogleHealthSynced 
+                    ? "Enhanced analysis using your Google Health data including vitals, activity, and health metrics."
+                    : "Basic analysis using symptoms and demographic information only. Sync Google Health for more accurate predictions."
+                  }
+                </p>
+              </div>
+
+              {/* Show weight field for both scenarios */}
+              <div>
+                <Label htmlFor="weight">Weight (kg) {!isGoogleHealthSynced && '*'}</Label>
+                <Input
+                  id="weight"
+                  type="number"
+                  value={weight || ''}
+                  onChange={(e) => setWeight(Number(e.target.value))}
+                  placeholder="70"
+                  required={!isGoogleHealthSynced}
+                />
+              </div>
+
+              {/* Show smoking habit for both scenarios */}
+              <div>
+                <Label htmlFor="smoking">Smoking Habit</Label>
+                <Select value={smokingHabit} onValueChange={setSmokingHabit}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="non-smoker">Non-smoker</SelectItem>
+                    <SelectItem value="former smoker">Former smoker</SelectItem>
+                    <SelectItem value="current smoker">Current smoker</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </CardContent>
+          </Card>
+
+          {isGoogleHealthSynced && (
+            <>
+              {/* Show all the existing vital signs, sleep & activity, and additional health data cards */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center">
+                    <Heart className="h-5 w-5 mr-2" />
+                    Vital Signs
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <Label htmlFor="systolic">Systolic BP</Label>
+                      <Input
+                        id="systolic"
+                        type="number"
+                        value={systolicBP}
+                        onChange={(e) => setSystolicBP(Number(e.target.value))}
+                      />
+                    </div>
+                    <div>
+                      <Label htmlFor="diastolic">Diastolic BP</Label>
+                      <Input
+                        id="diastolic"
+                        type="number"
+                        value={diastolicBP}
+                        onChange={(e) => setDiastolicBP(Number(e.target.value))}
+                      />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <Label htmlFor="heartRate">Heart Rate (bpm)</Label>
+                      <Input
+                        id="heartRate"
+                        type="number"
+                        value={heartRate}
+                        onChange={(e) => setHeartRate(Number(e.target.value))}
+                      />
+                    </div>
+                    <div>
+                      <Label htmlFor="temperature">Temperature (°C)</Label>
+                      <Input
+                        id="temperature"
+                        type="number"
+                        step="0.1"
+                        value={temperature}
+                        onChange={(e) => setTemperature(Number(e.target.value))}
+                      />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <Label htmlFor="spO2">SpO2 (%)</Label>
+                      <Input
+                        id="spO2"
+                        type="number"
+                        value={spO2}
+                        onChange={(e) => setSpO2(Number(e.target.value))}
+                      />
+                    </div>
+                    <div>
+                      <Label htmlFor="respiratoryRate">Respiratory Rate</Label>
+                      <Input
+                        id="respiratoryRate"
+                        type="number"
+                        value={respiratoryRate}
+                        onChange={(e) => setRespiratoryRate(Number(e.target.value))}
+                      />
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle>Sleep & Activity</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div>
+                    <Label htmlFor="sleepQuality">Sleep Quality</Label>
+                    <Select value={sleepQuality} onValueChange={setSleepQuality}>
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="excellent">Excellent</SelectItem>
+                        <SelectItem value="good">Good</SelectItem>
+                        <SelectItem value="fair">Fair</SelectItem>
+                        <SelectItem value="poor">Poor</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div>
+                    <Label htmlFor="sleepDuration">Sleep Duration (hours)</Label>
+                    <Input
+                      id="sleepDuration"
+                      type="number"
+                      value={sleepDuration}
+                      onChange={(e) => setSleepDuration(Number(e.target.value))}
+                    />
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <Label htmlFor="steps">Daily Steps</Label>
+                      <Input
+                        id="steps"
+                        type="number"
+                        value={activitySteps}
+                        onChange={(e) => setActivitySteps(Number(e.target.value))}
+                      />
+                    </div>
+                    <div>
+                      <Label htmlFor="calories">Calories Burned</Label>
+                      <Input
+                        id="calories"
+                        type="number"
+                        value={activityCalories}
+                        onChange={(e) => setActivityCalories(Number(e.target.value))}
+                      />
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle>Additional Health Data</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <Label htmlFor="glucose">Glucose Level</Label>
+                      <Input
+                        id="glucose"
+                        type="number"
+                        value={glucoseLevel}
+                        onChange={(e) => setGlucoseLevel(Number(e.target.value))}
+                      />
+                    </div>
+                    <div>
+                      <Label htmlFor="insulin">Insulin Level</Label>
+                      <Input
+                        id="insulin"
+                        type="number"
+                        value={insulinLevel}
+                        onChange={(e) => setInsulinLevel(Number(e.target.value))}
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <Label htmlFor="stress">Stress Level</Label>
+                    <Select value={stressLevel} onValueChange={setStressLevel}>
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="low">Low</SelectItem>
+                        <SelectItem value="mild">Mild</SelectItem>
+                        <SelectItem value="moderate">Moderate</SelectItem>
+                        <SelectItem value="high">High</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </CardContent>
+              </Card>
+            </>
+          )}
+
+          <Card className="md:col-span-2">
+            <CardHeader>
+              <CardTitle>Additional Information</CardTitle>
+              <CardDescription>
+                Any additional details about your symptoms or medical history
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div>
+                <Label htmlFor="additionalInfo">Additional Notes (Optional)</Label>
+                <textarea
+                  id="additionalInfo"
+                  className="w-full min-h-[80px] px-3 py-2 border border-input rounded-md resize-none focus:outline-none focus:ring-2 focus:ring-ring"
+                  placeholder="Any additional information about your symptoms, recent travel, exposure to illness, or other relevant details..."
+                  value={additionalInfo}
+                  onChange={(e) => setAdditionalInfo(e.target.value)}
+                />
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+
+        <div className="mt-8 text-center">
+          <Button 
+            onClick={handleSubmitPrediction} 
+            size="lg" 
+            className="px-8"
+            disabled={
+              isSubmittingPrediction || 
+              !age || 
+              !gender || 
+              symptoms.length < 3 || // Require at least 3 symptoms
+              (!isGoogleHealthSynced && !weight)
+            }
+          >
+            {isSubmittingPrediction 
+              ? (isGoogleHealthSynced ? 'Getting AI Prediction...' : 'Analyzing Symptoms...') 
+              : (isGoogleHealthSynced ? 'Get AI Prediction' : 'Analyze Symptoms')
+            }
+            <ArrowRight className="h-4 w-4 ml-2" />
+          </Button>
+        </div>
+
+        {/* Add a success preview card (optional - shows briefly before navigation) */}
+        {predictionResult && (
+          <Card className="mt-6 border-green-500 bg-green-50">
+            <CardHeader>
+              <CardTitle className="text-green-800 flex items-center">
+                <Activity className="h-5 w-5 mr-2" />
+                Analysis Complete
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-2 text-sm">
+                <p><strong>Primary Diagnosis:</strong> {predictionResult.data.primaryDiagnosis}</p>
+                <p><strong>Confidence:</strong> {predictionResult.data.confidenceLevel}</p>
+                <div className={`inline-block px-2 py-1 rounded text-xs ${getUrgencyColor(predictionResult.data.urgency)}`}>
+                  {predictionResult.data.urgency.toUpperCase()}
+                  {predictionResult.data.requiresImmediateAttention && ' - IMMEDIATE ATTENTION REQUIRED'}
+                </div>
+                <p className="text-muted-foreground mt-2">Redirecting to detailed results...</p>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+      </div>
+    );
+  }
 
   return (
     <div className="container mx-auto px-4 py-8 max-w-6xl">
@@ -151,10 +759,13 @@ export function SymptomInput({
                   <Label htmlFor="description">Symptom Description</Label>
                   <Input
                     id="description"
-                    placeholder="e.g., headache, fever, cough, sore throat..."
+                    placeholder="e.g., headache, fever, cough OR Breast lump, changes in breast size or shape, nipple changes, breast pain"
                     value={description}
                     onChange={(e) => setDescription(e.target.value)}
                   />
+                  <p className="text-xs text-muted-foreground mt-1">
+                    💡 Tip: You can enter multiple symptoms separated by commas. Each will use the same severity and duration.
+                  </p>
                 </div>
                 
                 <div>
@@ -180,14 +791,44 @@ export function SymptomInput({
                     onChange={(e) => setDuration(e.target.value)}
                   />
                 </div>
-                
+
+                {/* Add this preview section right after the duration input and before the Add Symptom button */}
+                {description.includes(',') && description.trim() && (
+                  <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+                    <div className="flex items-center mb-2">
+                      <Info className="h-4 w-4 text-blue-600 mr-2" />
+                      <span className="text-sm font-medium text-blue-800">Multiple symptoms detected</span>
+                    </div>
+                    <div className="text-xs text-blue-700">
+                      <p className="mb-2">The following {description.split(',').map(s => s.trim()).filter(s => s.length > 0).length} symptoms will be added:</p>
+                      <div className="space-y-1">
+                        {description.split(',').map(s => s.trim()).filter(s => s.length > 0).map((symptom, index) => (
+                          <div key={index} className="flex items-center justify-between bg-white rounded px-2 py-1">
+                            <span className="capitalize">{symptom}</span>
+                            <div className="flex items-center gap-1">
+                              <Badge variant="outline" className="text-xs capitalize">
+                                {severity}
+                              </Badge>
+                              <span className="text-muted-foreground text-xs">{duration}</span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Update the Add Symptom button to show count */}
                 <Button 
-                  onClick={handleAddSymptom} 
+                  onClick={handleAddSymptom} // Make sure this is handleAddSymptom, not handleAdd
                   disabled={!description.trim() || !duration.trim()}
                   className="w-full"
                 >
                   <Plus className="h-4 w-4 mr-2" />
-                  Add Symptom
+                  {description.includes(',') && description.trim() 
+                    ? `Add ${description.split(',').map(s => s.trim()).filter(s => s.length > 0).length} Symptoms`
+                    : 'Add Symptom'
+                  }
                 </Button>
               </CardContent>
             </Card>
@@ -290,7 +931,7 @@ export function SymptomInput({
                         <div className="mt-2">
                           <p className="text-xs text-muted-foreground mb-1">Watch for:</p>
                           <div className="flex flex-wrap gap-1">
-                            {outbreak.symptoms.slice(0, 3).map((symptom, index) => (
+                            {outbreak.symptoms.slice(0, 3).map((symptom: string, index: number) => (
                               <Badge key={index} variant="secondary" className="text-xs capitalize">
                                 {symptom}
                               </Badge>
@@ -332,13 +973,10 @@ export function SymptomInput({
 
       {symptoms.length > 0 && (
         <div className="mt-8 text-center">
-          <Button onClick={onContinue} size="lg" className="px-8">
-            Continue to Assessment
+          <Button onClick={() => setCurrentStep('health-data')} size="lg" className="px-8">
+            Continue to Health Data
             <ArrowRight className="h-4 w-4 ml-2" />
           </Button>
-          <p className="text-sm text-muted-foreground mt-2">
-            Your symptoms will be analyzed in context of current health alerts
-          </p>
         </div>
       )}
     </div>

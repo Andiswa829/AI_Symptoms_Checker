@@ -4,7 +4,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/
 import { Alert, AlertDescription } from './ui/alert';
 import { Badge } from './ui/badge';
 import { Stethoscope, Shield, Clock, Users, Globe, MapPin, AlertTriangle, Calendar, Activity } from 'lucide-react';
-import type { LocationData, User } from '../App';
+import { useNavigate } from 'react-router-dom';
+import { LocationData, User } from '../types/outbreaks';
 
 interface WelcomeScreenProps {
   onGetStarted: () => void;
@@ -16,6 +17,8 @@ interface WelcomeScreenProps {
 }
 
 export function WelcomeScreen({ onGetStarted, outbreakCount = 0, location, user, onViewOutbreaks, onBookAppointment }: WelcomeScreenProps) {
+  const navigate = useNavigate();
+
   return (
     <div className="container mx-auto px-4 py-8 max-w-6xl">
       <div className="text-center mb-8">
@@ -27,7 +30,7 @@ export function WelcomeScreen({ onGetStarted, outbreakCount = 0, location, user,
         {user && (
           <div className="mb-4">
             <p className="text-xl text-muted-foreground">
-              Welcome back! {/*{user.name.split(' ')[0]}!*/}
+              Welcome back {(user.name ? user.name.split(' ')[0] : 'User')}!
             </p>
             <p className="text-sm text-muted-foreground">
               Last login: {user.lastLogin.toLocaleDateString()}
@@ -208,7 +211,7 @@ export function WelcomeScreen({ onGetStarted, outbreakCount = 0, location, user,
         </CardContent>
       </Card>
 
- <Alert className="mb-8 border-destructive/50 bg-destructive/5">
+      <Alert className="mb-8 border-destructive/50 bg-destructive/5">
         <Shield className="h-4 w-4" />
         <AlertDescription className="text-destructive">
           <strong>Important Medical Disclaimer:</strong> This tool is for informational purposes only and is not a substitute for professional medical advice, diagnosis, or treatment. Always seek the advice of your physician or other qualified health provider with any questions you may have regarding a medical condition. In case of emergency, call your local emergency number immediately.
@@ -223,7 +226,9 @@ export function WelcomeScreen({ onGetStarted, outbreakCount = 0, location, user,
         <CardContent>
           <div className="grid md:grid-cols-3 gap-4">
             <Button 
-              onClick={onGetStarted} 
+              onClick={() => {
+                window.location.href = '/disclaimer';  // Changed from '/assessment' to '/disclaimer'
+              }} 
               size="lg" 
               className="h-16 flex-col space-y-1"
             >
@@ -232,7 +237,7 @@ export function WelcomeScreen({ onGetStarted, outbreakCount = 0, location, user,
             </Button>
             
             <Button 
-              onClick={onViewOutbreaks}
+              onClick={() => navigate('/outbreaks')}
               variant="outline" 
               size="lg" 
               className="h-16 flex-col space-y-1"
@@ -242,7 +247,7 @@ export function WelcomeScreen({ onGetStarted, outbreakCount = 0, location, user,
             </Button>
             
             <Button 
-              onClick={onBookAppointment}
+              onClick={() => navigate('/doctors')}
               variant="outline" 
               size="lg" 
               className="h-16 flex-col space-y-1"

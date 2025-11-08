@@ -20,7 +20,7 @@ import {
   User,
   FileText
 } from 'lucide-react';
-import type { Doctor, Symptom, Appointment } from '../App';
+import { Appointment, Doctor, Symptom } from '../types/doctor';
 
 interface AppointmentBookingProps {
   doctor: Doctor;
@@ -113,11 +113,11 @@ export function AppointmentBooking({
                   <p><strong>{doctor.name}</strong></p>
                   <p className="text-muted-foreground">{doctor.specialization}</p>
                   <p className="text-muted-foreground">{doctor.clinicName}</p>
-                  <div className="flex items-center">
+                  {/* <div className="flex items-center">
                     <Star className="h-4 w-4 fill-yellow-400 text-yellow-400 mr-1" />
                     <span>{doctor.rating}</span>
                     <span className="text-muted-foreground ml-1">({doctor.reviewCount} reviews)</span>
-                  </div>
+                  </div> */}
                 </div>
               </div>
               
@@ -248,11 +248,11 @@ export function AppointmentBooking({
               <p className="text-sm text-muted-foreground">{doctor.clinicName}</p>
             </div>
             
-            <div className="flex items-center">
+            {/* <div className="flex items-center">
               <Star className="h-4 w-4 fill-yellow-400 text-yellow-400 mr-1" />
               <span>{doctor.rating}</span>
               <span className="text-muted-foreground ml-1">({doctor.reviewCount} reviews)</span>
-            </div>
+            </div> */}
             
             <div className="space-y-2 text-sm">
               <div className="flex items-center">
@@ -272,7 +272,7 @@ export function AppointmentBooking({
             <div>
               <p className="text-sm text-muted-foreground mb-2">Languages:</p>
               <div className="flex flex-wrap gap-1">
-                {doctor.languages.map((lang, index) => (
+                {doctor.languages.map((lang:string, index:number) => (
                   <Badge key={index} variant="secondary" className="text-xs">
                     {lang}
                   </Badge>
@@ -353,7 +353,7 @@ export function AppointmentBooking({
                     mode="single"
                     selected={selectedDate}
                     onSelect={setSelectedDate}
-                    disabled={(date) => {
+                    disabled={(date: Date) => {
                       const day = date.getDay();
                       const dayName = date.toLocaleDateString('en-US', { weekday: 'long' });
                       return date < new Date() || !doctor.availability[dayName]?.length;
@@ -367,7 +367,7 @@ export function AppointmentBooking({
                   {selectedDate ? (
                     availableSlots.length > 0 ? (
                       <div className="grid grid-cols-2 gap-2">
-                        {availableSlots.map((slot) => (
+                        {availableSlots.map((slot: string) => (
                           <Button
                             key={slot}
                             variant={selectedTime === slot ? "default" : "outline"}

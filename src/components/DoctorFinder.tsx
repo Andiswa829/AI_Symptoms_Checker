@@ -1,435 +1,530 @@
-import React, { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { ApiService } from '../utils/api';
+import { endpoints } from '../config/env';
+import type { DoctorResponse } from '../types/doctor';
+import { loadGoogleMaps } from '../services/googleMaps';
+import { config } from '../config/env';
 import { Button } from './ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card';
+import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Badge } from './ui/badge';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
-import { Input } from './ui/input';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
-import { 
-  ArrowLeft, 
-  MapPin, 
-  Star, 
-  Phone, 
-  Clock, 
-  Filter,
-  Navigation,
-  Calendar,
-  Heart,
-  Stethoscope
-} from 'lucide-react';
-import type { Doctor, LocationData, Symptom } from '../App';
+import { ChevronLeft, Search, MapPin, Star } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { User } from '../types/outbreaks';
 
-interface DoctorFinderProps {
-  doctors: Doctor[];
-  location: LocationData | null;
-  symptoms: Symptom[];
-  onSelectDoctor: (doctor: Doctor) => void;
-  onBack: () => void;
+declare global {
+  interface Window { google: any; }
 }
 
-export function DoctorFinder({ doctors, location, symptoms, onSelectDoctor, onBack }: DoctorFinderProps) {
-  const [selectedDoctor, setSelectedDoctor] = useState<Doctor | null>(null);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [filterSpecialty, setFilterSpecialty] = useState('all');
-  const [sortBy, setSortBy] = useState('distance');
-  const [mapCenter, setMapCenter] = useState(
-    location?.coordinates || { lat: 51.5074, lng: -0.1278 }
-  );
+/* PlaceResult (from Google Places) */
+interface PlaceResult {
+  place_id: string;
+  name: string;
+  vicinity?: string;
+  rating?: number;
+  user_ratings_total?: number;
+  geometry?: { location: { lat(): number; lng(): number } };
+  photos?: any[];
+  types?: string[];
+  formatted_phone_number?: string;
+  website?: string;
+}
 
-  const specialties = ['all', ...new Set(doctors.map(d => d.specialization))];
+/* Doctor interface used by the app (exported here so DoctorFinder provides it) */
+export type Doctor = {
+  id: string;
+  name: string;
+  specialization: string;
+  qualifications: string[];
+  rating?: number;
+  reviewCount?: number;
+  distance: number;
+  address: string;
+  phone: string;
+  email: string;
+  coordinates: {
+    lat: number;
+    lng: number;
+  };
+  availability: Record<string, string[]>;
+  languages: string[];
+  acceptsInsurance: boolean;
+  consultationFee: number;
+  clinicName: string;
+  nextAvailable: string;
+};
 
-  const filteredDoctors = doctors
-    .filter(doctor => {
-      const matchesSearch = doctor.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                           doctor.specialization.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                           doctor.clinicName.toLowerCase().includes(searchQuery.toLowerCase());
-      const matchesSpecialty = filterSpecialty === 'all' || doctor.specialization === filterSpecialty;
-      return matchesSearch && matchesSpecialty;
-    })
-    .sort((a, b) => {
-      switch (sortBy) {
-        case 'distance':
-          return a.distance - b.distance;
-        case 'rating':
-          return b.rating - a.rating;
-        case 'availability':
-          return a.nextAvailable.localeCompare(b.nextAvailable);
-        default:
-          return 0;
-      }
-    });
+export type DoctorFinderProps = {
+  doctors: Doctor[];
+  location: {
+    country: string;
+    state?: string;
+    city?: string;
+    coordinates?: {
+      lat: number;
+      lng: number;
+    };
+  } | null;
+  symptoms: {
+    id: string;
+    description: string;
+    severity: "mild" | "moderate" | "severe";
+    duration: string;
+    timestamp: Date;
+  }[];
+  user: User|null;
+  onSelectDoctor: (doctor: Doctor) => void;
+  onBack: () => void;
+};
 
-  const DoctorCard = ({ doctor }: { doctor: Doctor }) => (
-    <Card 
-      className={`cursor-pointer transition-all hover:shadow-md ${
-        selectedDoctor?.id === doctor.id ? 'ring-2 ring-primary' : ''
-      }`}
-      onClick={() => setSelectedDoctor(doctor)}
-    >
-      <CardHeader className="pb-3">
-        <div className="flex items-start justify-between">
-          <div className="flex-1">
-            <CardTitle className="text-lg">{doctor.name}</CardTitle>
-            <CardDescription className="text-sm">{doctor.specialization}</CardDescription>
-            <p className="text-sm text-muted-foreground mt-1">{doctor.clinicName}</p>
-          </div>
-          <div className="text-right">
-            <div className="flex items-center mb-1">
-              <Star className="h-4 w-4 fill-yellow-400 text-yellow-400 mr-1" />
-              <span className="text-sm">{doctor.rating}</span>
-              <span className="text-xs text-muted-foreground ml-1">({doctor.reviewCount})</span>
-            </div>
-            <Badge variant="outline" className="text-xs">
-              {doctor.distance} km away
-            </Badge>
-          </div>
-        </div>
-      </CardHeader>
-      <CardContent className="pt-0">
-        <div className="space-y-2">
-          <div className="flex items-center text-sm text-muted-foreground">
-            <MapPin className="h-4 w-4 mr-2" />
-            <span className="truncate">{doctor.address}</span>
-          </div>
-          <div className="flex items-center text-sm text-muted-foreground">
-            <Clock className="h-4 w-4 mr-2" />
-            <span>Next available: {doctor.nextAvailable}</span>
-          </div>
-          <div className="flex items-center text-sm text-muted-foreground">
-            <Phone className="h-4 w-4 mr-2" />
-            <span>{doctor.phone}</span>
-          </div>
-        </div>
-        
-        <div className="mt-3 flex items-center justify-between">
-          <div className="flex flex-wrap gap-1">
-            {doctor.languages.slice(0, 2).map((lang, index) => (
-              <Badge key={index} variant="secondary" className="text-xs">
-                {lang}
-              </Badge>
-            ))}
-            {doctor.languages.length > 2 && (
-              <Badge variant="secondary" className="text-xs">
-                +{doctor.languages.length - 2}
-              </Badge>
-            )}
-          </div>
-          <div className="text-right">
-            <p className="text-sm">R{doctor.consultationFee}</p>
-            {doctor.acceptsInsurance && (
-              <Badge variant="outline" className="text-xs">Insurance</Badge>
-            )}
-          </div>
-        </div>
-        
-        <Button 
-          onClick={(e) => {
-            e.stopPropagation();
-            onSelectDoctor(doctor);
-          }}
-          className="w-full mt-3"
-          size="sm"
-        >
-          Book Appointment
-        </Button>
-      </CardContent>
-    </Card>
-  );
+// Johannesburg center coordinates
+const JOHANNESBURG_CENTER = { lat: -26.2041, lng: 28.0473 };
 
-  const MapView = () => (
-    <div className="relative w-full h-[600px] bg-gray-100 rounded-lg overflow-hidden">
-      {/* Mock map background */}
-      <div 
-        className="absolute inset-0 bg-gradient-to-br from-green-100 via-blue-50 to-gray-100"
-        style={{
-          backgroundImage: `url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23e5e7eb' fill-opacity='0.3'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E")`
-        }}
-      />
-      
-      {/* User location marker */}
-      {location?.coordinates && (
-        <div 
-          className="absolute transform -translate-x-1/2 -translate-y-1/2 z-20"
-          style={{
-            left: '50%',
-            top: '50%'
-          }}
-        >
-          <div className="relative">
-            <div className="w-4 h-4 bg-blue-600 rounded-full border-2 border-white shadow-lg animate-pulse" />
-            <div className="absolute -top-8 left-1/2 transform -translate-x-1/2 bg-black text-white text-xs px-2 py-1 rounded whitespace-nowrap">
-              Your Location
-            </div>
-          </div>
-        </div>
-      )}
-      
-      {/* Doctor location markers */}
-      {filteredDoctors.map((doctor, index) => {
-        const offsetX = (doctor.coordinates.lng - mapCenter.lng) * 8000 + 50;
-        const offsetY = (mapCenter.lat - doctor.coordinates.lat) * 8000 + 50;
-        
-        return (
-          <div
-            key={doctor.id}
-            className="absolute transform -translate-x-1/2 -translate-y-1/2 z-10 cursor-pointer"
-            style={{
-              left: `${Math.max(5, Math.min(95, offsetX))}%`,
-              top: `${Math.max(5, Math.min(95, offsetY))}%`
-            }}
-            onClick={() => setSelectedDoctor(doctor)}
-          >
-            <div className={`relative group ${selectedDoctor?.id === doctor.id ? 'z-30' : ''}`}>
-              <div className={`w-8 h-8 rounded-full border-2 border-white shadow-lg flex items-center justify-center text-white text-xs transition-all hover:scale-110 ${
-                selectedDoctor?.id === doctor.id 
-                  ? 'bg-red-600 scale-110' 
-                  : doctor.nextAvailable.includes('Today') 
-                    ? 'bg-green-600' 
-                    : 'bg-blue-600'
-              }`}>
-                <Stethoscope className="w-4 h-4" />
-              </div>
-              
-              {/* Tooltip */}
-              <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 opacity-0 group-hover:opacity-100 transition-opacity z-40">
-                <div className="bg-black text-white text-xs px-3 py-2 rounded-lg whitespace-nowrap shadow-lg">
-                  <p className="font-medium">{doctor.name}</p>
-                  <p className="text-gray-300">{doctor.specialization}</p>
-                  <div className="flex items-center mt-1">
-                    <Star className="w-3 h-3 fill-yellow-400 text-yellow-400 mr-1" />
-                    <span>{doctor.rating}</span>
-                    <span className="mx-1">•</span>
-                    <span>{doctor.distance}km</span>
+const MEDICAL_LOCATIONS = [
+  { name: "Chris Hani Baragwanath Hospital", lat: -26.2604, lng: 27.9408 },
+  { name: "Charlotte Maxeke Hospital", lat: -26.1744, lng: 28.0417 },
+  { name: "Helen Joseph Hospital", lat: -26.1796, lng: 27.9850 }
+];
+
+const cardHoverStyles = "transition-all duration-200 hover:shadow-lg hover:border-primary cursor-pointer";
+
+export function DoctorFinder({ doctors, location, symptoms, user, onSelectDoctor, onBack }: DoctorFinderProps) {
+  const mapRef = useRef<HTMLDivElement | null>(null);
+  const mapInstanceRef = useRef<any>(null);
+  const serviceRef = useRef<any>(null);
+  const markersRef = useRef<any[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [places, setPlaces] = useState<PlaceResult[]>([]);
+  const [center, setCenter] = useState<{ lat: number; lng: number }>(JOHANNESBURG_CENTER);
+  const [radius, setRadius] = useState<number>(5000); // 5km radius
+  const [doctorsState, setDoctors] = useState<DoctorResponse[]>([]);
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    const initMapAndLoadDoctors = async () => {
+      try {
+        setLoading(true);
+
+        // 1. First fetch doctors
+        const doctorsResponse = await ApiService.get(endpoints.doctors.list);
+        setDoctors(doctorsResponse);
+
+        // 2. Then initialize map
+        const apiKey = config.googleMapsApiKey;
+        const google = await loadGoogleMaps(apiKey);
+
+        const pos = await getCurrentPosition().catch(() => null);
+        const mapCenter = pos ?
+          { lat: pos.coords.latitude, lng: pos.coords.longitude } :
+          JOHANNESBURG_CENTER;
+
+        setCenter(mapCenter);
+
+        if (mapRef.current) {
+          mapInstanceRef.current = new google.maps.Map(mapRef.current, {
+            center: mapCenter,
+            zoom: 12,
+            streetViewControl: false,
+            mapTypeControl: false,
+            styles: [
+              {
+                featureType: "poi.medical",
+                elementType: "labels",
+                stylers: [{ visibility: "on" }]
+              },
+              {
+                featureType: "poi.business",
+                elementType: "labels",
+                stylers: [{ visibility: "off" }]
+              }
+            ]
+          });
+
+          // 3. Add markers only after map is initialized and doctors are loaded
+          // Add hospitals
+          MEDICAL_LOCATIONS.forEach(loc => {
+            const marker = new google.maps.Marker({
+              position: { lat: loc.lat, lng: loc.lng },
+              map: mapInstanceRef.current,
+              title: loc.name,
+              icon: {
+                url: 'https://maps.google.com/mapfiles/ms/icons/blue-dot.png'
+              }
+            });
+
+            const info = new google.maps.InfoWindow({
+              content: `<div style="min-width:180px">
+                <strong>${escapeHtml(loc.name)}</strong>
+                <div style="font-size:12px">Hospital/Medical Center</div>
+              </div>`
+            });
+
+            marker.addListener('click', () => info.open(mapInstanceRef.current, marker));
+            markersRef.current.push(marker);
+          });
+
+          // Add doctors
+          doctorsResponse.forEach((doc: DoctorResponse, idx: number) => {
+            console.log('Adding doctor marker:', doc);
+            const marker = new google.maps.Marker({
+              position: { lat: doc.latitude, lng: doc.longitude },
+              map: mapInstanceRef.current,
+              title: `${doc.firstName} ${doc.lastName}`,
+              label: { text: String(idx + 1), color: 'white' },
+              icon: {
+                url: 'https://maps.google.com/mapfiles/ms/icons/red-dot.png'
+              }
+            });
+
+            const info = new google.maps.InfoWindow({
+              content: `
+                <div style="min-width:200px">
+                  <strong>${doc.firstName} ${doc.lastName}</strong>
+                  <div style="font-size:12px">${doc.specialization}</div>
+                  <div style="font-size:12px">${doc.address}, ${doc.city}</div>
+                  <div style="font-size:12px">Rating: ${doc.rating} • ${doc.yearsOfExperience} years exp.</div>
+                  <div style="margin-top:8px">
+                    <button 
+                      id="select-doctor-${doc.id}" 
+                      style="padding:6px 12px;border-radius:4px;background:#2563eb;color:white;border:none;cursor:pointer"
+                    >
+                      Book Appointment
+                    </button>
                   </div>
                 </div>
+              `
+            });
+
+            marker.addListener('click', () => {
+              info.open(mapInstanceRef.current, marker);
+
+              // Add click handler after info window is opened
+              google.maps.event.addListenerOnce(info, 'domready', () => {
+                const button = document.getElementById(`select-doctor-${doc.id}`);
+                if (button) {
+                  button.addEventListener('click', () => {
+                    const mappedDoctor: Doctor = {
+                      id: doc.id.toString(),
+                      name: `${doc.firstName} ${doc.lastName}`,
+                      specialization: doc.specialization,
+                      qualifications: [`${doc.yearsOfExperience} years experience`],
+                      rating: doc.rating,
+                      reviewCount: 0,
+                      distance: 0,
+                      address: `${doc.address}, ${doc.city}`,
+                      phone: doc.phoneNumber,
+                      email: doc.email,
+                      coordinates: {
+                        lat: doc.latitude,
+                        lng: doc.longitude
+                      },
+                      availability: {},
+                      languages: ['English'],
+                      acceptsInsurance: true,
+                      consultationFee: 0,
+                      clinicName: '',
+                      nextAvailable: new Date().toISOString()
+                    };
+                    onSelectDoctor?.(mappedDoctor);
+                    info.close(); // Close the info window after selection
+                  });
+                }
+              });
+            });
+
+            markersRef.current.push(marker);
+          });
+        }
+
+      } catch (error) {
+        console.error('Failed to initialize map or fetch doctors:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    initMapAndLoadDoctors();
+    return () => { clearMarkers(); };
+  }, []);
+
+  // Remove the second useEffect that was fetching doctors
+  // Remove the addMedicalLocations function as it's now integrated above
+
+  async function performSearch(loc: { lat: number; lng: number }, r: number) {
+    if (!serviceRef.current) return;
+    setLoading(true);
+
+    const request = {
+      location: new window.google.maps.LatLng(loc.lat, loc.lng),
+      radius: r,
+      type: ['doctor', 'hospital'],
+      keyword: 'doctor OR hospital OR clinic OR medical centre',
+    };
+
+    serviceRef.current.nearbySearch(request, (results: PlaceResult[], status: string) => {
+      setLoading(false);
+      if (status !== window.google.maps.places.PlacesServiceStatus.OK || !results) {
+        console.warn('Places search failed:', status);
+        return;
+      }
+      setPlaces(results);
+      renderMarkers(results);
+    });
+  }
+
+  function clearMarkers() {
+    markersRef.current.forEach(m => m.setMap && m.setMap(null));
+    markersRef.current = [];
+  }
+
+  function mapPlaceToDoctor(p: PlaceResult): Doctor {
+    const lat = p.geometry?.location?.lat?.() ?? 0;
+    const lng = p.geometry?.location?.lng?.() ?? 0;
+    return {
+      id: p.place_id,
+      name: p.name,
+      specialization: deriveSpecializationFromTypes(p.types) ?? '',
+      qualifications: [],
+     // reviewCount: p.user_ratings_total ?? 0,
+      rating: p.rating ?? 0,
+      distance: 0,
+      address: p.vicinity ?? '',
+      phone: (p as any).formatted_phone_number ?? undefined,
+      email: '',
+      coordinates: { lat, lng },
+      availability: {},
+      languages: [],
+      acceptsInsurance: false,
+      consultationFee: 0,
+      clinicName: '',
+      nextAvailable: ''
+    };
+  }
+
+  function renderMarkers(results: PlaceResult[]) {
+    clearMarkers();
+    const map = mapInstanceRef.current;
+    if (!map) return;
+    results.forEach((p, idx) => {
+      const pos = p.geometry?.location ? { lat: p.geometry.location.lat(), lng: p.geometry.location.lng() } : null;
+      if (!pos) return;
+      const marker = new window.google.maps.Marker({
+        position: pos,
+        map,
+        title: p.name,
+        label: { text: String(idx + 1), color: 'white' },
+      });
+      const info = new window.google.maps.InfoWindow({
+        content: `<div style="min-width:180px">
+            <strong>${escapeHtml(p.name)}</strong>
+            <div style="font-size:12px">${escapeHtml(p.vicinity || '')}</div>
+            <div style="margin-top:6px">
+              <button 
+                id="select-doctor-${p.place_id}" 
+                style="padding:6px 8px;border-radius:4px;background:#2563eb;color:white;border:none;cursor:pointer"
+              >
+                Select
+              </button>
+            </div>
+          </div>
+        `
+      });
+
+      marker.addListener('click', () => info.open(map, marker));
+      window.google.maps.event.addListenerOnce(info, 'domready', () => {
+        const el = document.getElementById(`select-doctor-${p.place_id}`);
+        if (el) {
+          el.addEventListener('click', () => {
+            const doctor = mapPlaceToDoctor(p);
+            onSelectDoctor?.(doctor);
+          });
+        }
+      });
+
+      markersRef.current.push(marker);
+    });
+  }
+
+  async function recenterToUser() {
+    const pos = await getCurrentPosition().catch(() => null);
+    if (!pos) return;
+    const newCenter = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+    setCenter(newCenter);
+    mapInstanceRef.current?.setCenter(newCenter);
+    performSearch(newCenter, radius);
+  }
+
+  // Update the back button handler
+  const handleBack = () => {
+    navigate('/welcome');
+  };
+
+  const handleBookAppointment = (doctor: Doctor) => {
+    onSelectDoctor?.(doctor);
+    navigate('/booking', {
+      state: {
+        doctor,
+        symptoms
+      }
+    });
+  };
+
+  return (
+    <div className="flex flex-col h-full">
+      {/* Header */}
+      <div className="border-b bg-white p-4 sticky top-0 z-10">
+        <div className="flex items-center gap-4">
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={handleBack}
+          >
+            <ChevronLeft className="h-5 w-5" />
+          </Button>
+          <div className="flex-1">
+            <h1 className="text-lg font-semibold">Find Doctors</h1>
+            <p className="text-sm text-muted-foreground">
+              {location?.city ? `${location.city}, ` : ''}
+              {location?.country || 'South Africa'}
+            </p>
+          </div>
+          <Button onClick={recenterToUser}>
+            <MapPin className="h-4 w-4 mr-2" />
+            Use my location
+          </Button>
+        </div>
+      </div>
+
+      {/* Main Content */}
+      <div className="grid md:grid-cols-2 gap-4 p-4 h-[calc(100vh-80px)]">
+        {/* Map */}
+        <div className="relative h-full rounded-lg overflow-hidden border">
+          <div className="absolute inset-0" ref={mapRef}></div>
+        </div>
+
+        {/* Doctor List */}
+        <div className="flex flex-col h-full">
+          {/* Search and Filters */}
+          <div className="mb-4 space-y-2">
+            <div className="flex items-center gap-2">
+              <select
+                value={radius}
+                onChange={(e) => {
+                  const r = Number(e.target.value);
+                  setRadius(r);
+                  if (center) performSearch(center, r);
+                }}
+                className="h-10 px-3 rounded-md border"
+              >
+                <option value={2000}>2 km</option>
+                <option value={5000}>5 km</option>
+                <option value={10000}>10 km</option>
+                <option value={20000}>20 km</option>
+              </select>
+              <div className="text-sm text-muted-foreground">
+                {doctorsState.length} doctors found
               </div>
             </div>
           </div>
-        );
-      })}
-      
-      {/* Map controls */}
-      <div className="absolute top-4 right-4 flex flex-col gap-2">
-        <Button size="sm" variant="secondary" className="w-10 h-10 p-0">
-          +
-        </Button>
-        <Button size="sm" variant="secondary" className="w-10 h-10 p-0">
-          −
-        </Button>
-        <Button size="sm" variant="secondary" className="w-10 h-10 p-0">
-          <Navigation className="w-4 h-4" />
-        </Button>
-      </div>
-      
-      {/* Legend */}
-      <div className="absolute bottom-4 left-4 bg-white p-3 rounded-lg shadow-lg">
-        <h4 className="text-xs mb-2">Legend</h4>
-        <div className="flex flex-col gap-1 text-xs">
-          <div className="flex items-center">
-            <div className="w-3 h-3 bg-blue-600 rounded-full mr-2" />
-            <span>Your location</span>
-          </div>
-          <div className="flex items-center">
-            <div className="w-3 h-3 bg-green-600 rounded-full mr-2" />
-            <span>Available today</span>
-          </div>
-          <div className="flex items-center">
-            <div className="w-3 h-3 bg-blue-600 rounded-full mr-2" />
-            <span>Available later</span>
-          </div>
-          <div className="flex items-center">
-            <div className="w-3 h-3 bg-red-600 rounded-full mr-2" />
-            <span>Selected</span>
+
+          {/* Doctor Cards */}
+          <div className="overflow-auto flex-1 -mx-2 px-2">
+            <div className="space-y-3">
+              {doctorsState.map((doc) => (
+                <div
+                  key={doc.id}
+                  className="p-4 border rounded-lg hover:shadow-md transition-shadow cursor-pointer bg-white"
+                  onClick={() => {
+                    mapInstanceRef.current?.panTo({ lat: doc.latitude, lng: doc.longitude });
+                    mapInstanceRef.current?.setZoom(15);
+                  }}
+                >
+                  <div className="flex justify-between items-start">
+                    <div>
+                      <h3 className="font-medium text-lg">{doc.firstName} {doc.lastName}</h3>
+                      <p className="text-sm text-primary">{doc.specialization}</p>
+                    </div>
+                    <Badge variant="outline">
+                      {doc.yearsOfExperience} years exp.
+                    </Badge>
+                  </div>
+
+                  <div className="mt-2 text-sm text-muted-foreground flex items-center gap-1">
+                    <MapPin className="h-3 w-3" />
+                    {doc.address}, {doc.city}
+                  </div>
+
+                  <div className="mt-3 flex items-center justify-between gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={(e:any) => {
+                        e.stopPropagation();
+                        mapInstanceRef.current?.panTo({ lat: doc.latitude, lng: doc.longitude });
+                        mapInstanceRef.current?.setZoom(15);
+                      }}
+                    >
+                      <MapPin className="h-3 w-3 mr-1" />
+                      View on map
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="default"
+                      className="pointer-events-auto"
+                      onClick={(e: React.MouseEvent) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        const mappedDoctor: Doctor = {
+                          id: doc.id.toString(),
+                          name: `${doc.firstName} ${doc.lastName}`,
+                          specialization: doc.specialization,
+                          qualifications: [`${doc.yearsOfExperience} years experience`],
+                          distance: 0,
+                          address: `${doc.address}, ${doc.city}`,
+                          phone: doc.phoneNumber,
+                          email: doc.email,
+                          coordinates: {
+                            lat: doc.latitude,
+                            lng: doc.longitude
+                          },
+                          availability: {},
+                          languages: ['English'],
+                          acceptsInsurance: true,
+                          consultationFee: 0,
+                          clinicName: '',
+                          nextAvailable: new Date().toISOString()
+                        };
+                        handleBookAppointment(mappedDoctor);
+                      }}
+                    >
+                      Book Appointment
+                    </Button>
+                  </div>
+                </div>
+              ))}
+            </div>
           </div>
         </div>
       </div>
     </div>
   );
+}
 
-  return (
-    <div className="container mx-auto px-4 py-8 max-w-7xl">
-      <div className="mb-6">
-        <Button variant="outline" onClick={onBack} className="mb-4">
-          <ArrowLeft className="h-4 w-4 mr-2" />
-          Back to Results
-        </Button>
-        <h1 className="text-3xl text-primary mb-2">Find Doctors Near You</h1>
-        <p className="text-muted-foreground">
-          {location && `Showing healthcare providers near ${location.city || location.country}`}
-        </p>
-      </div>
+/* helpers */
+function getCurrentPosition(): Promise<GeolocationPosition> {
+  return new Promise((resolve, reject) => {
+    if (!navigator.geolocation) return reject(new Error('Geolocation not supported'));
+    navigator.geolocation.getCurrentPosition(resolve, reject, { timeout: 10000 });
+  });
+}
 
-      {/* Filters and Search */}
-      <Card className="mb-6">
-        <CardHeader>
-          <CardTitle className="flex items-center">
-            <Filter className="h-5 w-5 mr-2" />
-            Filters & Search
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="grid md:grid-cols-4 gap-4">
-            <div>
-              <Input
-                placeholder="Search doctors, clinics..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-              />
-            </div>
-            <div>
-              <Select value={filterSpecialty} onValueChange={setFilterSpecialty}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Specialty" />
-                </SelectTrigger>
-                <SelectContent>
-                  {specialties.map(specialty => (
-                    <SelectItem key={specialty} value={specialty}>
-                      {specialty === 'all' ? 'All Specialties' : specialty}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div>
-              <Select value={sortBy} onValueChange={setSortBy}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Sort by" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="distance">Distance</SelectItem>
-                  <SelectItem value="rating">Rating</SelectItem>
-                  <SelectItem value="availability">Availability</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="flex items-center text-sm text-muted-foreground">
-              Found {filteredDoctors.length} doctor{filteredDoctors.length !== 1 ? 's' : ''}
-            </div>
-          </div>
-        </CardContent>
-      </Card>
+function escapeHtml(s: string) {
+  return String(s ?? '').replace(/[&<>"']/g, (m) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' }[m] as string));
+}
 
-      <Tabs defaultValue="list" className="w-full">
-        <TabsList className="grid w-full grid-cols-2">
-          <TabsTrigger value="list">List View</TabsTrigger>
-          <TabsTrigger value="map">Map View</TabsTrigger>
-        </TabsList>
-        
-        <TabsContent value="list" className="mt-6">
-          <div className="grid lg:grid-cols-2 xl:grid-cols-3 gap-4">
-            {filteredDoctors.map(doctor => (
-              <DoctorCard key={doctor.id} doctor={doctor} />
-            ))}
-          </div>
-          
-          {filteredDoctors.length === 0 && (
-            <Card>
-              <CardContent className="text-center py-12">
-                <Stethoscope className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
-                <h3 className="text-lg mb-2">No doctors found</h3>
-                <p className="text-muted-foreground">
-                  Try adjusting your search criteria or filters
-                </p>
-              </CardContent>
-            </Card>
-          )}
-        </TabsContent>
-        
-        <TabsContent value="map" className="mt-6">
-          <div className="grid lg:grid-cols-3 gap-6">
-            <div className="lg:col-span-2">
-              <MapView />
-            </div>
-            <div className="space-y-4 max-h-[600px] overflow-y-auto">
-              {selectedDoctor ? (
-                <Card>
-                  <CardHeader>
-                    <CardTitle className="text-lg">{selectedDoctor.name}</CardTitle>
-                    <CardDescription>{selectedDoctor.specialization}</CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="space-y-3">
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center">
-                          <Star className="h-4 w-4 fill-yellow-400 text-yellow-400 mr-1" />
-                          <span>{selectedDoctor.rating}</span>
-                          <span className="text-sm text-muted-foreground ml-1">
-                            ({selectedDoctor.reviewCount} reviews)
-                          </span>
-                        </div>
-                        <Badge variant="outline">{selectedDoctor.distance} km</Badge>
-                      </div>
-                      
-                      <div className="text-sm">
-                        <p className="text-muted-foreground mb-1">Address:</p>
-                        <p>{selectedDoctor.address}</p>
-                      </div>
-                      
-                      <div className="text-sm">
-                        <p className="text-muted-foreground mb-1">Next Available:</p>
-                        <p className="flex items-center">
-                          <Clock className="h-4 w-4 mr-1" />
-                          {selectedDoctor.nextAvailable}
-                        </p>
-                      </div>
-                      
-                      <div className="text-sm">
-                        <p className="text-muted-foreground mb-1">Consultation Fee:</p>
-                        <p>R{selectedDoctor.consultationFee}</p>
-                      </div>
-                      
-                      <Button 
-                        onClick={() => onSelectDoctor(selectedDoctor)}
-                        className="w-full"
-                      >
-                        <Calendar className="h-4 w-4 mr-2" />
-                        Book Appointment
-                      </Button>
-                    </div>
-                  </CardContent>
-                </Card>
-              ) : (
-                <Card>
-                  <CardContent className="text-center py-8">
-                    <MapPin className="h-8 w-8 mx-auto text-muted-foreground mb-2" />
-                    <p className="text-muted-foreground">
-                      Click on a doctor marker to see details
-                    </p>
-                  </CardContent>
-                </Card>
-              )}
-              
-              {/* Quick access to nearby doctors */}
-              <div className="space-y-2">
-                <h4 className="text-sm font-medium">Nearby Doctors</h4>
-                {filteredDoctors.slice(0, 3).map(doctor => (
-                  <Card 
-                    key={doctor.id} 
-                    className="cursor-pointer hover:shadow-md transition-all"
-                    onClick={() => setSelectedDoctor(doctor)}
-                  >
-                    <CardContent className="p-3">
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <p className="text-sm">{doctor.name}</p>
-                          <p className="text-xs text-muted-foreground">{doctor.specialization}</p>
-                        </div>
-                        <div className="text-right">
-                          <div className="flex items-center text-xs">
-                            <Star className="h-3 w-3 fill-yellow-400 text-yellow-400 mr-1" />
-                            {doctor.rating}
-                          </div>
-                          <p className="text-xs text-muted-foreground">{doctor.distance} km</p>
-                        </div>
-                      </div>
-                    </CardContent>
-                  </Card>
-                ))}
-              </div>
-            </div>
-          </div>
-        </TabsContent>
-      </Tabs>
-    </div>
-  );
+function deriveSpecializationFromTypes(types?: string[]): string | undefined {
+  if (!types || types.length === 0) return undefined;
+  if (types.includes('hospital')) return 'Hospital';
+  if (types.includes('clinic')) return 'Clinic';
+  if (types.includes('doctor')) return 'General Practitioner';
+  return types.join(', ');
 }

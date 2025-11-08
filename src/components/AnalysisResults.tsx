@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { Button } from './ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card';
 import { Alert, AlertDescription } from './ui/alert';
@@ -16,12 +16,17 @@ import {
   MapPin,
   Calendar,
   Stethoscope,
-  Users
+  Users,
+  Info,
+  Activity
 } from 'lucide-react';
-import type { AnalysisResult, Symptom, OutbreakData, LocationData } from '../App';
+import { Symptom } from '../types/doctor';
+import { AnalysisResult, OutbreakData, LocationData } from '../types/outbreaks';
+import { useLocation } from 'react-router-dom';
+
 
 interface AnalysisResultsProps {
-  result: AnalysisResult;
+  result?: AnalysisResult;
   symptoms: Symptom[];
   onStartOver: () => void;
   outbreakData: {
@@ -32,6 +37,34 @@ interface AnalysisResultsProps {
   onFindDoctors: () => void;
 }
 
+
+// models/SymptomAnalysis.ts
+export interface PossibleCondition {
+  description: string;
+  probability: number;
+  name: string;
+}
+
+export interface AnalysisData {
+  primaryDiagnosis: string;
+  confidence: number;
+  confidenceLevel: string;
+  possibleConditions: PossibleCondition[];
+  recommendations: string[];
+  urgency: string;
+  summary: string;
+  timestamp: string;
+  requiresImmediateAttention: boolean;
+}
+
+export interface SymptomAnalysisResponse {
+  success: boolean;
+  message: string;
+  data: AnalysisData;
+  errors: string[];
+}
+
+
 export function AnalysisResults({ 
   result, 
   symptoms, 
@@ -40,47 +73,53 @@ export function AnalysisResults({
   location, 
   onFindDoctors 
 }: AnalysisResultsProps) {
+  const routeLocation = useLocation();
+  const [analysisData, setAnalysisData] = useState<AnalysisData | null>(null);
+
+  useEffect(() => {
+    // Get analysis data from route state or localStorage
+    const stateData = routeLocation.state?.result;
+    const storedData = localStorage.getItem('analysisResult');
+    console.log('Route Location State:', stateData );
+    console.log('Stored Data:', storedData );
+    if (stateData) {
+      setAnalysisData(stateData);
+    } else if (storedData) {
+      const parsed = JSON.parse(storedData);
+      setAnalysisData(parsed.result);
+    }
+  }, [routeLocation]);
+
   const getUrgencyConfig = (level: string) => {
     switch (level) {
       case 'emergency':
         return {
           color: 'bg-red-100 text-red-800 border-red-200',
-          icon: <Phone className="h-4 w-4" />,
-          title: 'Emergency',
-          description: 'Seek immediate medical attention'
+          icon: '🚨',
+          message: 'Seek immediate medical attention'
         };
-      case 'high':
+      case 'urgent':
         return {
           color: 'bg-orange-100 text-orange-800 border-orange-200',
-          icon: <AlertTriangle className="h-4 w-4" />,
-          title: 'High Priority',
-          description: 'Contact your healthcare provider soon'
+          icon: '⚠️',
+          message: 'Consult a healthcare provider soon'
         };
-      case 'medium':
-        return {
-          color: 'bg-yellow-100 text-yellow-800 border-yellow-200',
-          icon: <Clock className="h-4 w-4" />,
-          title: 'Medium Priority',
-          description: 'Monitor symptoms and consider medical consultation'
-        };
-      case 'low':
+      case 'routine':
         return {
           color: 'bg-green-100 text-green-800 border-green-200',
-          icon: <CheckCircle className="h-4 w-4" />,
-          title: 'Low Priority',
-          description: 'Self-care measures may be sufficient'
+          icon: '✅',
+          message: 'Self-care measures may be sufficient'
         };
       default:
         return {
           color: 'bg-gray-100 text-gray-800 border-gray-200',
-          icon: <Clock className="h-4 w-4" />,
-          title: 'Unknown',
-          description: 'Consult with healthcare provider'
+          icon: 'ℹ️',
+          message: 'Monitor symptoms'
         };
     }
   };
 
-  const urgencyConfig = getUrgencyConfig(result.urgencyLevel);
+  const urgencyConfig = getUrgencyConfig(analysisData?.urgency || 'routine');
 
   return (
     <div className="container mx-auto px-4 py-8 max-w-6xl">
@@ -91,228 +130,272 @@ export function AnalysisResults({
         </p>
       </div>
 
+      {/* Medical Disclaimer */}
       <Alert className="mb-8 border-destructive/50 bg-destructive/5">
-        <Shield className="h-4 w-4" />
-        <AlertDescription className="text-destructive">
-          <strong>Medical Disclaimer:</strong> {result.disclaimer}
+        <Shield className="h-4 w-4 text-destructive" />
+        <AlertDescription>
+          <strong>Important Medical Disclaimer:</strong> This tool provides general information only and is not a substitute for professional medical advice. Always consult a qualified healthcare provider for diagnosis and treatment decisions. In case of emergency, call your local emergency services immediately.
         </AlertDescription>
       </Alert>
 
-      {/* Outbreak Context */}
-      {result.outbreakContext && result.outbreakContext.length > 0 && (
-        <Alert className="mb-8 border-orange-500/50 bg-orange-50">
-          <AlertTriangle className="h-4 w-4 text-orange-600" />
-          <AlertDescription>
-            <div className="space-y-2">
-              <p className="text-orange-800">
-                <strong>Health Alert:</strong> Your symptoms may be related to current disease outbreaks:
-              </p>
-              {result.outbreakContext.map((context, index) => (
-                <div key={index} className="text-sm text-orange-700">
-                  • <strong>{context.outbreak.title}</strong> - {context.reason}
-                </div>
-              ))}
-            </div>
-          </AlertDescription>
-        </Alert>
-      )}
-
-      <div className="grid lg:grid-cols-3 gap-6 mb-8">
-        <Card className="lg:col-span-2">
-          <CardHeader>
-            <CardTitle>Possible Conditions</CardTitle>
-            <CardDescription>
-              Conditions that may match your symptoms, ordered by likelihood
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            {result.possibleConditions.map((condition, index) => (
-              <div key={index} className="border rounded-lg p-4">
-                <div className="flex items-center justify-between mb-3">
-                  <h3 className="text-lg">{condition.name}</h3>
-                  <Badge variant="outline">{condition.probability}% match</Badge>
-                </div>
-                <Progress value={condition.probability} className="mb-3" />
-                <p className="text-sm text-muted-foreground">{condition.description}</p>
-              </div>
-            ))}
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center">
-              {urgencyConfig.icon}
-              <span className="ml-2">Urgency Level</span>
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <Badge className={`${urgencyConfig.color} mb-3`}>
-              {urgencyConfig.title}
-            </Badge>
-            <p className="text-sm mb-4">{urgencyConfig.description}</p>
-            
-            {result.urgencyLevel === 'emergency' && (
-              <Alert className="border-red-200 bg-red-50">
-                <Phone className="h-4 w-4" />
-                <AlertDescription className="text-red-800">
-                  Call emergency services immediately or go to the nearest emergency room.
-                </AlertDescription>
-              </Alert>
-            )}
-          </CardContent>
-        </Card>
-      </div>
-
-      <div className="grid lg:grid-cols-2 gap-6 mb-8">
-        <Card>
-          <CardHeader>
-            <CardTitle>Recommendations</CardTitle>
-            <CardDescription>
-              Suggested next steps based on your symptoms
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <ul className="space-y-3">
-              {result.recommendations.map((recommendation, index) => (
-                <li key={index} className="flex items-start">
-                  <CheckCircle className="h-4 w-4 text-green-600 mt-0.5 mr-2 flex-shrink-0" />
-                  <span className="text-sm">{recommendation}</span>
-                </li>
-              ))}
-            </ul>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle>Symptom Summary</CardTitle>
-            <CardDescription>
-              Overview of the symptoms you reported
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-3">
-              {symptoms.map((symptom, index) => (
-                <div key={symptom.id}>
-                  <div className="flex items-center justify-between">
-                    <span className="capitalize text-sm">{symptom.description}</span>
-                    <Badge variant="outline" className={
-                      symptom.severity === 'mild' ? 'border-green-200 text-green-800' :
-                      symptom.severity === 'moderate' ? 'border-yellow-200 text-yellow-800' :
-                      'border-red-200 text-red-800'
-                    }>
-                      {symptom.severity}
-                    </Badge>
+      <div className="grid lg:grid-cols-3 gap-8">
+        <div className="lg:col-span-2 space-y-6">
+          {/* Primary Diagnosis Card */}
+          {analysisData?.primaryDiagnosis && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center">
+                  <Activity className="h-5 w-5 mr-2" />
+                  Primary Assessment
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-4">
+                  <div>
+                    <h3 className="text-xl font-semibold text-primary mb-2">
+                      {analysisData.primaryDiagnosis}
+                    </h3>
+                    <div className="flex items-center gap-4 text-sm text-muted-foreground">
+                      <span>
+                        <strong>Confidence:</strong> {analysisData.confidenceLevel} 
+                        ({(analysisData.confidence * 100).toFixed(1)}%)
+                      </span>
+                      <span>
+                        <strong>Analysis Time:</strong> {new Date(analysisData.timestamp).toLocaleString()}
+                      </span>
+                    </div>
                   </div>
-                  <p className="text-xs text-muted-foreground mt-1">Duration: {symptom.duration}</p>
-                  {index < symptoms.length - 1 && <Separator className="mt-3" />}
+                  
+                  {analysisData.summary && (
+                    <div className="bg-blue-50 p-4 rounded-lg border-l-4 border-blue-400">
+                      <p className="text-sm">{analysisData.summary}</p>
+                    </div>
+                  )}
                 </div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
-      </div>
+              </CardContent>
+            </Card>
+          )}
 
-      {/* Find Doctors Section */}
-      <Card className="mb-8 bg-gradient-to-r from-blue-50 to-indigo-50 border-blue-200">
-        <CardHeader>
-          <CardTitle className="flex items-center text-blue-900">
-            <Stethoscope className="h-6 w-6 mr-2" />
-            Book an Appointment
-          </CardTitle>
-          <CardDescription className="text-blue-700">
-            Find and book appointments with qualified healthcare providers in your area
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="grid md:grid-cols-2 gap-6 items-center">
-            <div>
-              <div className="space-y-3">
-                <div className="flex items-center text-sm text-blue-800">
-                  <MapPin className="h-4 w-4 mr-2" />
-                  <span>
-                    {location ? 
-                      `${location.city || location.country} area` : 
-                      'Your local area'
-                    }
-                  </span>
+          {/* Possible Conditions */}
+          <Card>
+            <CardHeader>
+              <CardTitle>Possible Conditions</CardTitle>
+              <CardDescription>
+                Conditions that may match your symptoms, ordered by likelihood
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              {analysisData?.possibleConditions && analysisData.possibleConditions.length > 0 ? (
+                <div className="space-y-4">
+                  {analysisData.possibleConditions
+                    .filter((condition: any) => !condition.name.toLowerCase().includes('note'))
+                    .map((condition: any, index: number) => {
+                      const percentage = (condition.probability * 100).toFixed(1);
+                      return (
+                        <div key={index} className="border rounded-lg p-4">
+                          <div className="flex items-center justify-between mb-3">
+                            <h4 className="font-medium text-sm">{condition.name}</h4>
+                            <Badge variant="outline" className="text-xs">
+                              {percentage}%
+                            </Badge>
+                          </div>
+                          <Progress 
+                            value={condition.probability * 100} 
+                            className="h-2" 
+                          />
+                          <div className="flex justify-between text-xs text-muted-foreground mt-1">
+                            <span>Likelihood</span>
+                            <span>{percentage}%</span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  {/* Show message if all conditions were filtered out */}
+                  {analysisData.possibleConditions.filter((condition: any) => !condition.name.toLowerCase().includes('note')).length === 0 && (
+                    <div className="text-center py-8 text-muted-foreground">
+                      <FileText className="h-8 w-8 mx-auto mb-2 opacity-50" />
+                      <p>No specific conditions identified.</p>
+                      <p className="text-sm">Consider providing more detailed symptoms.</p>
+                    </div>
+                  )}
                 </div>
-                <div className="flex items-center text-sm text-blue-800">
-                  <Users className="h-4 w-4 mr-2" />
-                  <span>5+ qualified doctors available</span>
+              ) : (
+                <div className="text-center py-8 text-muted-foreground">
+                  <FileText className="h-8 w-8 mx-auto mb-2 opacity-50" />
+                  <p>No specific conditions identified.</p>
+                  <p className="text-sm">Consider providing more detailed symptoms.</p>
                 </div>
-                <div className="flex items-center text-sm text-blue-800">
-                  <Calendar className="h-4 w-4 mr-2" />
-                  <span>Same-day appointments available</span>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Recommendations */}
+          <Card>
+            <CardHeader>
+              <CardTitle>Recommendations</CardTitle>
+              <CardDescription>
+                Suggested next steps based on your symptoms
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              {analysisData?.recommendations && analysisData.recommendations.length > 0 ? (
+                <div className="space-y-4">
+                  {analysisData.recommendations.map((action: string, index: number) => (
+                    <div key={index} className="flex items-start gap-3 p-3 bg-blue-50 rounded-lg border-l-4 border-blue-400">
+                      <div className="flex-shrink-0 w-6 h-6 bg-blue-100 rounded-full flex items-center justify-center text-xs font-bold text-blue-600 mt-0.5">
+                        {index + 1}
+                      </div>
+                      <div className="flex-1">
+                        
+                        <p className="text-sm text-blue-800 font-medium">{action}</p>
+                      </div>
+                    </div>
+                  ))}
+                  
+                  {/* Summary footer */}
+                  <div className="mt-4 pt-4 border-t">
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="text-muted-foreground">Total Recommendations:</span>
+                      <Badge variant="secondary">{analysisData.recommendations.length}</Badge>
+                    </div>
+                    <Progress 
+                      value={100} 
+                      className="h-1 mt-2" 
+                    />
+                  </div>
+                </div>
+              ) : (
+                <div className="text-center py-8 text-muted-foreground">
+                  <Stethoscope className="h-8 w-8 mx-auto mb-2 opacity-50" />
+                  <p>No specific recommendations available.</p>
+                  <p className="text-sm">Consider consulting a healthcare professional.</p>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* Sidebar */}
+        <div className="space-y-6">
+          {/* Urgency Level */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center">
+                <CheckCircle className="h-5 w-5 mr-2" />
+                Urgency Level
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-4">
+                <div className={`inline-flex items-center px-3 py-2 rounded-full text-sm font-medium border ${urgencyConfig.color}`}>
+                  <span className="mr-2">{urgencyConfig.icon}</span>
+                  {analysisData?.urgency ? (
+                    <span className="capitalize">{analysisData.urgency} Priority</span>
+                  ) : (
+                    <span>Low Priority</span>
+                  )}
+                </div>
+                
+                <p className="text-sm text-muted-foreground">
+                  {urgencyConfig.message}
+                </p>
+
+                {analysisData?.requiresImmediateAttention && (
+                  <Alert className="border-red-500 bg-red-50">
+                    <AlertTriangle className="h-4 w-4 text-red-600" />
+                    <AlertDescription className="text-red-800">
+                      <strong>Immediate attention required.</strong> Please seek medical care promptly.
+                    </AlertDescription>
+                  </Alert>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Symptom Summary */}
+          <Card>
+            <CardHeader>
+              <CardTitle>Symptom Summary</CardTitle>
+              <CardDescription>
+                Overview of the symptoms you reported
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-4">
+                {/* Summary from API */}
+                {analysisData?.summary && (
+                  <div className="bg-blue-50 p-3 rounded-lg border-l-4 border-blue-400">
+                    <p className="text-sm text-blue-800">{analysisData.summary}</p>
+                  </div>
+                )}
+                
+                {/* Symptom count and details */}
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm font-medium">Symptoms Reported:</span>
+                    <Badge variant="outline">{symptoms.length}</Badge>
+                  </div>
+                  
+                  {symptoms.length > 0 && (
+                    <>
+                      <Progress value={(symptoms.length / 10) * 100} className="h-2" />
+                      <div className="space-y-2 max-h-32 overflow-y-auto">
+                        {symptoms.map((symptom, index) => (
+                          <div key={index} className="flex items-center justify-between text-xs p-2 bg-gray-50 rounded">
+                            <span className="capitalize font-medium">{symptom.description}</span>
+                            <div className="flex items-center gap-2">
+                              <Badge 
+                                variant={symptom.severity === 'severe' ? 'destructive' : 
+                                        symptom.severity === 'moderate' ? 'default' : 'secondary'} 
+                                className="text-xs capitalize"
+                              >
+                                {symptom.severity}
+                              </Badge>
+                              <span className="text-muted-foreground">{symptom.duration}</span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </>
+                  )}
+                  
+                  {/* Analysis timestamp */}
+                  {analysisData?.timestamp && (
+                    <div className="text-xs text-muted-foreground flex items-center gap-1">
+                      <Clock className="h-3 w-3" />
+                      <span>Analyzed: {new Date(analysisData.timestamp).toLocaleString()}</span>
+                    </div>
+                  )}
                 </div>
               </div>
-              <ul className="mt-4 space-y-2 text-sm text-blue-700">
-                <li>• View doctor profiles and ratings</li>
-                <li>• Check real-time availability</li>
-                <li>• Book appointments instantly</li>
-                <li>• Get directions to clinics</li>
-              </ul>
-            </div>
-            <div className="text-center">
-              <Button 
-                onClick={onFindDoctors}
-                size="lg"
-                className="bg-blue-600 hover:bg-blue-700 text-white px-8 py-3"
-              >
-                <MapPin className="h-5 w-5 mr-2" />
-                Find Doctors Near Me
-              </Button>
-              <p className="text-xs text-blue-600 mt-2">
-                Your symptoms and analysis will be shared with your chosen doctor
-              </p>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
+            </CardContent>
+          </Card>
 
-      <Card className="mb-8">
-        <CardHeader>
-          <CardTitle className="flex items-center">
-            <FileText className="h-5 w-5 mr-2" />
-            Next Steps
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="grid md:grid-cols-3 gap-6">
-            <div className="text-center p-4 border rounded-lg">
-              <Phone className="h-8 w-8 mx-auto mb-3 text-primary" />
-              <h3 className="mb-2">Contact Healthcare Provider</h3>
-              <p className="text-sm text-muted-foreground">
-                Schedule an appointment with your doctor or healthcare provider for professional evaluation
-              </p>
-            </div>
-            <div className="text-center p-4 border rounded-lg">
-              <Clock className="h-8 w-8 mx-auto mb-3 text-primary" />
-              <h3 className="mb-2">Monitor Symptoms</h3>
-              <p className="text-sm text-muted-foreground">
-                Keep track of any changes in your symptoms and note any new developments
-              </p>
-            </div>
-            <div className="text-center p-4 border rounded-lg">
-              <CheckCircle className="h-8 w-8 mx-auto mb-3 text-primary" />
-              <h3 className="mb-2">Follow Recommendations</h3>
-              <p className="text-sm text-muted-foreground">
-                Follow the care recommendations provided and seek help if symptoms worsen
-              </p>
-            </div>
+          {/* Action Buttons */}
+          <div className="space-y-3">
+            <Button onClick={onFindDoctors} className="w-full">
+              <MapPin className="h-4 w-4 mr-2" />
+              Find Doctors Nearby
+            </Button>
+            
+            <Button variant="outline" onClick={onStartOver} className="w-full">
+              <RotateCcw className="h-4 w-4 mr-2" />
+              Start New Assessment
+            </Button>
           </div>
-        </CardContent>
-      </Card>
 
-      <div className="text-center">
-        <Button onClick={onStartOver} variant="outline" size="lg" className="px-8">
-          <RotateCcw className="h-4 w-4 mr-2" />
-          Start New Assessment
-        </Button>
-        <p className="text-sm text-muted-foreground mt-4">
-          You can start a new symptom assessment at any time
-        </p>
+          {/* Confidence Notice */}
+          {analysisData?.confidence && analysisData.confidence < 0.5 && (
+            <Alert className="border-orange-500 bg-orange-50">
+              <Info className="h-4 w-4 text-orange-600" />
+              <AlertDescription className="text-orange-800">
+                <strong>Low Confidence Assessment</strong>
+                <br />
+                Consider providing more detailed symptoms or consulting a healthcare professional for a more accurate diagnosis.
+              </AlertDescription>
+            </Alert>
+          )}
+        </div>
       </div>
     </div>
   );

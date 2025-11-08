@@ -3,7 +3,8 @@ import { Alert, AlertDescription } from './ui/alert';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
 import { X, AlertTriangle, ExternalLink, MapPin } from 'lucide-react';
-import type { OutbreakData } from '../App';
+import { OutbreakData } from '../types/outbreaks';
+
 
 interface OutbreakAlertProps {
   outbreak: OutbreakData;

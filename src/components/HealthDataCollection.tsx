@@ -77,14 +77,23 @@ export type HealthMetrics = {
   };
 };
 
+interface User {
+   id: string;
+  email: string;
+  firstName: string;
+  lastName: string;
+  isExternalAuth: boolean;
+  profilePicture?: string;
+  dateOfBirth?: string;
+  gender?: string;
+  externalProvider?:string;
+}
+
 interface HealthDataCollectionProps {
   onDataCollected: (healthData: HealthMetrics) => void;
   onBack: () => void;
   onContinue: () => void;
-  user: {
-    provider: "google" | "email";
-    name: string;
-  } | null;
+  user: User;
 }
 
 export function HealthDataCollection({ 
@@ -109,7 +118,7 @@ export function HealthDataCollection({
     steps: "",
     stressLevel: ""
   });
-
+console.log("User data collection",user);
   // Simulate Google Health API data collection
   const collectHealthData = async () => {
     setIsLoading(true);
@@ -285,7 +294,7 @@ export function HealthDataCollection({
         <div>
           <h1 className="text-2xl font-medium">Health Data Collection</h1>
           <p className="text-muted-foreground">
-            {user?.provider === "google" 
+            {user?.externalProvider === "Google" 
               ? "Sync your vital signs and health metrics for more accurate assessment"
               : "Add your health metrics manually or skip to continue with symptom assessment"
             }
@@ -301,10 +310,10 @@ export function HealthDataCollection({
               <Activity className="w-8 h-8 text-blue-600" />
             </div>
             <CardTitle>
-              {user?.provider === "google" ? "Connect Google Health" : "Health Data Collection"}
+              {user?.externalProvider === "Google" ? "Connect Google Health" : "Health Data Collection"}
             </CardTitle>
             <CardDescription className="max-w-md mx-auto">
-              {user?.provider === "google" 
+              {user?.externalProvider === "Google" 
                 ? "We'll securely collect your latest health metrics including heart rate, blood pressure, sleep data, and activity levels to provide more personalized health insights."
                 : "Add your health metrics manually to get more personalized health insights, or skip this step to continue."
               }
@@ -319,7 +328,7 @@ export function HealthDataCollection({
               </AlertDescription>
             </Alert>
 
-            {user?.provider !== "google" && (
+            {user?.externalProvider !== "Google" && (
               <Alert className="mb-6 bg-amber-50 border-amber-200">
                 <User className="h-4 w-4 text-amber-600" />
                 <AlertDescription className="text-amber-800">
@@ -349,7 +358,7 @@ export function HealthDataCollection({
               </div>
               
               <div className="flex gap-3">
-                {user?.provider === "google" && (
+                {user?.externalProvider === "Google" && (
                   <Button 
                     onClick={collectHealthData}
                     className="flex-1"
@@ -499,7 +508,7 @@ export function HealthDataCollection({
                   
                   <div>
                     <Label htmlFor="sleepQuality">Sleep Quality</Label>
-                    <Select value={manualData.sleepQuality} onValueChange={(value) => setManualData({...manualData, sleepQuality: value})}>
+                    <Select value={manualData.sleepQuality} onValueChange={(value:any) => setManualData({...manualData, sleepQuality: value})}>
                       <SelectTrigger>
                         <SelectValue placeholder="Select quality" />
                       </SelectTrigger>

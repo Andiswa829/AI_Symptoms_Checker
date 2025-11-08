@@ -3,9 +3,10 @@ import { Button } from './ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Input } from './ui/input';
 import { ScrollArea } from './ui/scroll-area';
-import { Avatar, AvatarContent, AvatarFallback } from './ui/avatar';
+import { Avatar, AvatarFallback } from './ui/avatar';
 import { Send, ArrowLeft, Bot, User } from 'lucide-react';
-import type { Symptom, ChatMessage } from '../App';
+import { Symptom } from '../types/doctor';
+import { ChatMessage } from '../types/outbreaks';
 
 interface SymptomChatProps {
   symptoms: Symptom[];
