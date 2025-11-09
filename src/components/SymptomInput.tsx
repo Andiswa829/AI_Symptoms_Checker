@@ -124,20 +124,57 @@ export function SymptomInput({
   const [gender, setGender] = useState<string>('');
   const [additionalInfo, setAdditionalInfo] = useState<string>('');
   const [isGoogleHealthSynced, setIsGoogleHealthSynced] = useState(false); // Track sync status
+  const [hasCollectedHealthData, setHasCollectedHealthData] = useState(false); // Track if health data was collected
+
+  // Check if health data was already collected in the previous step
+  useEffect(() => {
+    const storedHealthData = localStorage.getItem('healthData');
+    if (storedHealthData) {
+      try {
+        const healthData = JSON.parse(storedHealthData);
+        setHasCollectedHealthData(true);
+        setIsGoogleHealthSynced(true); // Consider it synced if health data exists
+      } catch (error) {
+        console.error('Error parsing stored health data:', error);
+      }
+    }
+  }, []);
 
   useEffect(() => {
     // Check for outbreaks that match current symptoms
-    const allOutbreaks = [...outbreakData.global, ...outbreakData.local];
-    const symptomsText = symptoms.map(s => s.description.toLowerCase()).join(' ');
-    
-    const matches = allOutbreaks.filter(outbreak => {
-      return outbreak.symptoms?.some((outbreakSymptom: string) => 
-        symptomsText.includes(outbreakSymptom.toLowerCase()) ||
-        outbreakSymptom.toLowerCase().includes(symptomsText.split(' ').find(word => word.length > 3) || '')
-      );
-    });
-    
-    setRelevantOutbreaks(matches);
+    try {
+      const allOutbreaks = [...(outbreakData?.global || []), ...(outbreakData?.local || [])];
+      const symptomsText = symptoms.map(s => s.description?.toLowerCase() || '').join(' ');
+      
+      if (!symptomsText.trim()) {
+        setRelevantOutbreaks([]);
+        return;
+      }
+      
+      const matches = allOutbreaks.filter(outbreak => {
+        if (!outbreak || !outbreak.symptoms || !Array.isArray(outbreak.symptoms)) {
+          return false;
+        }
+        
+        return outbreak.symptoms.some((outbreakSymptom: string) => {
+          // Add null/undefined checks and ensure it's a string
+          if (!outbreakSymptom || typeof outbreakSymptom !== 'string') {
+            return false;
+          }
+          
+          const symptomLower = outbreakSymptom.toLowerCase();
+          const foundWord = symptomsText.split(' ').find(word => word && word.length > 3);
+          
+          return symptomsText.includes(symptomLower) ||
+                 (foundWord && symptomLower.includes(foundWord));
+        });
+      });
+      
+      setRelevantOutbreaks(matches);
+    } catch (error) {
+      console.error('Error processing outbreak data:', error);
+      setRelevantOutbreaks([]);
+    }
   }, [symptoms, outbreakData]);
 
   // Update the handleAddSymptom function with debugging
@@ -268,26 +305,87 @@ export function SymptomInput({
       }
 
       if (!response.ok) {
-        throw new Error(`API call failed: ${response.status} ${response.statusText}`);
+        const errorText = await response.text();
+        console.error('API Error Response:', errorText);
+        throw new Error(`API call failed: ${response.status} ${response.statusText}. ${errorText}`);
       }
 
-      const result: ApiResponse = await response.json();
+      const result: any = await response.json();
+      console.log('API Success Response:', result); // Debug log
       
       // Check if the API returned success
       if (!result.success) {
         const errorMessage = result.errors?.length > 0 
           ? result.errors.join(', ') 
           : result.message || 'Analysis failed';
+        console.error('API returned failure:', errorMessage);
         throw new Error(errorMessage);
       }
 
+      // Transform the response based on API type
+      let transformedResult: ApiResponse;
+      
+      if (isGoogleHealthSynced && result.data.predictedDisease) {
+        // Handle /predict API response format
+        const determinedUrgency = determineUrgencyFromSymptoms(symptoms);
+        const isEmergency = determinedUrgency === 'emergency';
+        const isUrgent = determinedUrgency === 'urgent';
+
+        // Set appropriate recommended actions based on urgency
+        let recommendedActions: string[];
+        if (isEmergency) {
+          recommendedActions = [
+            'Seek immediate medical attention',
+            'Go to the nearest emergency room',
+            'Call emergency services if condition is life-threatening',
+            'Do not delay medical care'
+          ];
+        } else if (isUrgent) {
+          recommendedActions = [
+            'Consult a healthcare provider within 24-48 hours',
+            'Monitor symptoms closely',
+            'Seek immediate care if symptoms worsen',
+            'Keep a record of symptom changes'
+          ];
+        } else {
+          recommendedActions = result.data.confidence > 0.7 ? 
+            ['Consult with a healthcare provider for confirmation', 'Monitor symptoms closely'] :
+            ['Seek medical evaluation for proper diagnosis', 'Keep track of symptom changes'];
+        }
+
+        transformedResult = {
+          success: true,
+          message: result.message,
+          data: {
+            primaryDiagnosis: result.data.predictedDisease,
+            confidence: result.data.confidence,
+            confidenceLevel: result.data.confidence > 0.8 ? 'High' : 
+                           result.data.confidence > 0.6 ? 'Medium' : 
+                           result.data.confidence > 0.4 ? 'Low' : 'Very Low',
+            possibleConditions: result.data.alternativesDiagnoses?.map((alt: any) => ({
+              disease: alt.disease,
+              confidence: alt.confidence
+            })) || [],
+            recommendedActions,
+            urgency: determinedUrgency,
+            summary: `AI prediction analysis completed with ${(result.data.confidence * 100).toFixed(1)}% confidence.`,
+            timestamp: result.data.predictionDateTime,
+            requiresImmediateAttention: isEmergency
+          },
+          errors: result.errors || []
+        };
+      } else {
+        // Handle /analyze API response format (already in correct format)
+        transformedResult = result as ApiResponse;
+      }
+
       // Store the result and navigate to analysis page
-      if (result.success) {
-        setPredictionResult(result);
+      if (transformedResult.success && transformedResult.data) {
+        setPredictionResult(transformedResult);
         
         // Call the callback to show the result modal
         if (onAnalysisComplete) {
-          onAnalysisComplete(result);
+          onAnalysisComplete(transformedResult);
         } else {
           onContinue(); // Fallback to direct navigation
         }
@@ -295,19 +393,32 @@ export function SymptomInput({
 
       // Optionally, you can also store in localStorage for persistence
       localStorage.setItem('analysisResult', JSON.stringify({
-        result: result.data,
+        result: transformedResult.data,
         symptoms,
-        timestamp: result.data.timestamp,
+        timestamp: transformedResult.data.timestamp,
         apiUsed: isGoogleHealthSynced ? 'predict' : 'analyze'
       }));
 
     } catch (error) {
-      console.error('API error:', error);
+      console.error('Full API error details:', error);
       
       // Show user-friendly error message
-      const errorMessage = error instanceof Error 
-        ? error.message 
-        : `Failed to ${isGoogleHealthSynced ? 'get prediction' : 'analyze symptoms'}`;
+      let errorMessage = 'An unexpected error occurred';
+      
+      if (error instanceof Error) {
+        errorMessage = error.message;
+      } else if (typeof error === 'string') {
+        errorMessage = error;
+      }
+      
+      // More specific error message based on error type
+      if (errorMessage.includes('Failed to fetch')) {
+        errorMessage = 'Unable to connect to the analysis server. Please check your internet connection and try again.';
+      } else if (errorMessage.includes('500')) {
+        errorMessage = 'Server error occurred. Please try again in a moment.';
+      } else if (errorMessage.includes('404')) {
+        errorMessage = 'Analysis service not found. Please contact support.';
+      }
         
       alert(`Analysis Error:\n${errorMessage}\n\nPlease try again or contact support if the problem persists.`);
     } finally {
@@ -341,6 +452,71 @@ export function SymptomInput({
       default:
         return 'border-gray-500 bg-gray-50';
     }
+  };
+
+  // Determine urgency based on symptom severity
+  const determineUrgencyFromSymptoms = (symptoms: Symptom[]): 'routine' | 'urgent' | 'emergency' => {
+    if (!symptoms || symptoms.length === 0) return 'routine';
+
+    // Define emergency symptoms that require immediate attention
+    const emergencyKeywords = [
+      'chest pain', 'difficulty breathing', 'severe abdominal pain', 'unconscious',
+      'seizure', 'severe bleeding', 'stroke symptoms', 'heart attack', 'severe allergic reaction',
+      'severe headache', 'high fever', 'severe burns', 'broken bone', 'severe injury',
+      'shortness of breath', 'trouble breathing', 'choking', 'severe vomiting'
+    ];
+
+    // Define urgent symptoms that need prompt attention
+    const urgentKeywords = [
+      'persistent fever', 'severe pain', 'blood in urine', 'blood in stool',
+      'severe nausea', 'dehydration', 'persistent vomiting', 'severe diarrhea',
+      'moderate bleeding', 'severe cough', 'persistent headache', 'dizziness',
+      'fainting', 'confusion', 'severe fatigue'
+    ];
+
+    let severeCount = 0;
+    let moderateCount = 0;
+    let hasEmergencySymptom = false;
+    let hasUrgentSymptom = false;
+
+    symptoms.forEach(symptom => {
+      const description = symptom.description.toLowerCase();
+      
+      // Check for emergency keywords
+      if (emergencyKeywords.some(keyword => description.includes(keyword))) {
+        hasEmergencySymptom = true;
+      }
+      
+      // Check for urgent keywords
+      if (urgentKeywords.some(keyword => description.includes(keyword))) {
+        hasUrgentSymptom = true;
+      }
+
+      // Count severity levels
+      if (symptom.severity === 'severe') {
+        severeCount++;
+      } else if (symptom.severity === 'moderate') {
+        moderateCount++;
+      }
+    });
+
+    // Emergency conditions
+    if (hasEmergencySymptom || severeCount >= 3) {
+      return 'emergency';
+    }
+
+    // Urgent conditions
+    if (hasUrgentSymptom || severeCount >= 2 || (severeCount >= 1 && moderateCount >= 2)) {
+      return 'urgent';
+    }
+
+    // Check for moderate symptoms with concerning patterns
+    if (moderateCount >= 3 || severeCount >= 1) {
+      return 'urgent';
+    }
+
+    // Default to routine
+    return 'routine';
   };
 
   // Add helper function to get urgency color
@@ -408,39 +584,56 @@ export function SymptomInput({
                 </div>
               </div>
               
-              {/* Google Health Sync Toggle */}
-              <div className="border rounded-lg p-4 bg-blue-50">
-                <div className="flex items-center justify-between mb-2">
-                  <Label htmlFor="googleHealthSync" className="text-sm font-medium">
-                    Sync Google Health Data
-                  </Label>
-                  <Button
-                    type="button"
-                    variant={isGoogleHealthSynced ? "default" : "outline"}
-                    size="sm"
-                    onClick={() => setIsGoogleHealthSynced(!isGoogleHealthSynced)}
-                  >
-                    {isGoogleHealthSynced ? "Synced" : "Sync Now"}
-                  </Button>
+              {/* Google Health Sync Toggle - Only show if no health data was collected */}
+              {!hasCollectedHealthData && (
+                <div className="border rounded-lg p-4 bg-blue-50">
+                  <div className="flex items-center justify-between mb-2">
+                    <Label htmlFor="googleHealthSync" className="text-sm font-medium">
+                      Sync Google Health Data
+                    </Label>
+                    <Button
+                      type="button"
+                      variant={isGoogleHealthSynced ? "default" : "outline"}
+                      size="sm"
+                      onClick={() => setIsGoogleHealthSynced(!isGoogleHealthSynced)}
+                    >
+                      {isGoogleHealthSynced ? "Synced" : "Sync Now"}
+                    </Button>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    {isGoogleHealthSynced 
+                      ? "Enhanced analysis using your Google Health data including vitals, activity, and health metrics."
+                      : "Basic analysis using symptoms and demographic information only. Sync Google Health for more accurate predictions."
+                    }
+                  </p>
                 </div>
-                <p className="text-xs text-muted-foreground">
-                  {isGoogleHealthSynced 
-                    ? "Enhanced analysis using your Google Health data including vitals, activity, and health metrics."
-                    : "Basic analysis using symptoms and demographic information only. Sync Google Health for more accurate predictions."
-                  }
-                </p>
-              </div>
+              )}
 
-              {/* Show weight field for both scenarios */}
+              {/* Health Data Already Collected Message */}
+              {hasCollectedHealthData && (
+                <div className="border rounded-lg p-4 bg-green-50 border-green-200">
+                  <div className="flex items-center gap-2 mb-2">
+                    <Heart className="w-4 h-4 text-green-600" />
+                    <Label className="text-sm font-medium text-green-800">
+                      Health Data Connected
+                    </Label>
+                  </div>
+                  <p className="text-xs text-green-700">
+                    Your health metrics have been collected and will be used for enhanced analysis including vitals, activity, and health data.
+                  </p>
+                </div>
+              )}
+
+              {/* Show weight field - required if no health data was collected and Google Health not synced */}
               <div>
-                <Label htmlFor="weight">Weight (kg) {!isGoogleHealthSynced && '*'}</Label>
+                <Label htmlFor="weight">Weight (kg) {!hasCollectedHealthData && !isGoogleHealthSynced && '*'}</Label>
                 <Input
                   id="weight"
                   type="number"
                   value={weight || ''}
                   onChange={(e) => setWeight(Number(e.target.value))}
                   placeholder="70"
-                  required={!isGoogleHealthSynced}
+                  required={!hasCollectedHealthData && !isGoogleHealthSynced}
                 />
               </div>
 
@@ -564,7 +757,7 @@ export function SymptomInput({
                       onChange={(e) => setSleepDuration(Number(e.target.value))}
                     />
                   </div>
-                  <div className="grid grid-cols-2 gap-4">
+                  {/* <div className="grid grid-cols-2 gap-4">
                     <div>
                       <Label htmlFor="steps">Daily Steps</Label>
                       <Input
@@ -583,7 +776,7 @@ export function SymptomInput({
                         onChange={(e) => setActivityCalories(Number(e.target.value))}
                       />
                     </div>
-                  </div>
+                  </div> */}
                 </CardContent>
               </Card>
 

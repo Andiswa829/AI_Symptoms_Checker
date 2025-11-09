@@ -38,8 +38,8 @@ export class AuthService {
     return map(resp);
   }
 
-  static async loginWithGoogle(idToken: string): Promise<User> {
-    const resp = await ApiService.post(endpoints.auth.google, { idToken }) as AuthResponse;
+  static async loginWithGoogle(idToken: string, accessToken?: string): Promise<User> {
+    const resp = await ApiService.post(endpoints.auth.google, { idToken, accessToken }) as AuthResponse;
     ApiService.setToken(resp.token);
     return map(resp);
   }

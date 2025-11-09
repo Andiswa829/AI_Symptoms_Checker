@@ -89,7 +89,7 @@ export const router = createBrowserRouter([
             console.log('Logged in user:', user);
             // Store user data in localStorage
             localStorage.setItem('user', JSON.stringify(user));
-           window.location.href = '/welcome';
+        window.location.href = '/welcome';
           }} 
         />,
       },
