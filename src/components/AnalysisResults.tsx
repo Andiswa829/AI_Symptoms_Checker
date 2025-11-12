@@ -119,7 +119,74 @@ export function AnalysisResults({
     }
   };
 
-  const urgencyConfig = getUrgencyConfig(analysisData?.urgency || 'routine');
+  // Determine urgency based on symptom severity if not provided by API
+  const determineUrgencyFromSymptoms = (symptoms: Symptom[]): string => {
+    if (!symptoms || symptoms.length === 0) return 'routine';
+
+    // Define emergency symptoms that require immediate attention
+    const emergencyKeywords = [
+      'chest pain', 'difficulty breathing', 'severe abdominal pain', 'unconscious',
+      'seizure', 'severe bleeding', 'stroke symptoms', 'heart attack', 'severe allergic reaction',
+      'severe headache', 'high fever', 'severe burns', 'broken bone', 'severe injury',
+      'shortness of breath', 'trouble breathing', 'choking', 'severe vomiting'
+    ];
+
+    // Define urgent symptoms that need prompt attention
+    const urgentKeywords = [
+      'persistent fever', 'severe pain', 'blood in urine', 'blood in stool',
+      'severe nausea', 'dehydration', 'persistent vomiting', 'severe diarrhea',
+      'moderate bleeding', 'severe cough', 'persistent headache', 'dizziness',
+      'fainting', 'confusion', 'severe fatigue'
+    ];
+
+    let severeCount = 0;
+    let moderateCount = 0;
+    let hasEmergencySymptom = false;
+    let hasUrgentSymptom = false;
+
+    symptoms.forEach(symptom => {
+      const description = symptom.description.toLowerCase();
+      
+      // Check for emergency keywords
+      if (emergencyKeywords.some(keyword => description.includes(keyword))) {
+        hasEmergencySymptom = true;
+      }
+      
+      // Check for urgent keywords
+      if (urgentKeywords.some(keyword => description.includes(keyword))) {
+        hasUrgentSymptom = true;
+      }
+
+      // Count severity levels
+      if (symptom.severity === 'severe') {
+        severeCount++;
+      } else if (symptom.severity === 'moderate') {
+        moderateCount++;
+      }
+    });
+
+    // Emergency conditions
+    if (hasEmergencySymptom || severeCount >= 3) {
+      return 'emergency';
+    }
+
+    // Urgent conditions
+    if (hasUrgentSymptom || severeCount >= 2 || (severeCount >= 1 && moderateCount >= 2)) {
+      return 'urgent';
+    }
+
+    // Check for moderate symptoms with concerning patterns
+    if (moderateCount >= 3 || severeCount >= 1) {
+      return 'urgent';
+    }
+
+    // Default to routine
+    return 'routine';
+  };
+
+  // Use API urgency if available, otherwise determine from symptoms
+  const finalUrgency = analysisData?.urgency || determineUrgencyFromSymptoms(symptoms);
+  const urgencyConfig = getUrgencyConfig(finalUrgency);
 
   return (
     <div className="container mx-auto px-4 py-8 max-w-6xl">
@@ -277,7 +344,7 @@ export function AnalysisResults({
 
         {/* Sidebar */}
         <div className="space-y-6">
-          {/* Urgency Level */}
+          Urgency Level
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center">
@@ -289,8 +356,8 @@ export function AnalysisResults({
               <div className="space-y-4">
                 <div className={`inline-flex items-center px-3 py-2 rounded-full text-sm font-medium border ${urgencyConfig.color}`}>
                   <span className="mr-2">{urgencyConfig.icon}</span>
-                  {analysisData?.urgency ? (
-                    <span className="capitalize">{analysisData.urgency} Priority</span>
+                  {finalUrgency ? (
+                    <span className="capitalize">{finalUrgency} Priority</span>
                   ) : (
                     <span>Low Priority</span>
                   )}
@@ -300,7 +367,16 @@ export function AnalysisResults({
                   {urgencyConfig.message}
                 </p>
 
-                {analysisData?.requiresImmediateAttention && (
+                {/* Indicate if urgency was determined from symptoms */}
+                {!analysisData?.urgency && finalUrgency !== 'routine' && (
+                  <div className="bg-yellow-50 p-3 rounded-lg border-l-4 border-yellow-400">
+                    <p className="text-xs text-yellow-800">
+                      <strong>Note:</strong> Urgency level determined based on symptom severity analysis.
+                    </p>
+                  </div>
+                )}
+
+                {(analysisData?.requiresImmediateAttention || finalUrgency === 'emergency') && (
                   <Alert className="border-red-500 bg-red-50">
                     <AlertTriangle className="h-4 w-4 text-red-600" />
                     <AlertDescription className="text-red-800">

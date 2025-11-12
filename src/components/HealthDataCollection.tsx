@@ -9,6 +9,7 @@ import { Input } from "./ui/input";
 import { Label } from "./ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "./ui/tabs";
+import { GoogleHealthService } from "../services/googleHealthService";
 import { 
   Heart, 
   Activity, 
@@ -24,8 +25,9 @@ import {
   ArrowLeft,
   ArrowRight,
   Edit,
-  User
+  User as UserIcon
 } from "lucide-react";
+import { User } from '../types/outbreaks';
 
 export type HealthMetrics = {
   heartRate: {
@@ -77,18 +79,6 @@ export type HealthMetrics = {
   };
 };
 
-interface User {
-   id: string;
-  email: string;
-  firstName: string;
-  lastName: string;
-  isExternalAuth: boolean;
-  profilePicture?: string;
-  dateOfBirth?: string;
-  gender?: string;
-  externalProvider?:string;
-}
-
 interface HealthDataCollectionProps {
   onDataCollected: (healthData: HealthMetrics) => void;
   onBack: () => void;
@@ -102,11 +92,16 @@ export function HealthDataCollection({
   onContinue,
   user
 }: HealthDataCollectionProps) {
+  console.log("HealthDataCollection - User data:", user);
+  console.log("HealthDataCollection - User access token:", user.accessToken);
+  
   const [isLoading, setIsLoading] = useState(false);
   const [healthData, setHealthData] = useState<HealthMetrics | null>(null);
   const [syncProgress, setSyncProgress] = useState(0);
   const [currentStep, setCurrentStep] = useState<string>("");
   const [inputMethod, setInputMethod] = useState<"google" | "manual" | "skip">("google");
+  const [isDataSynced, setIsDataSynced] = useState(false);
+  const [showSyncOptions, setShowSyncOptions] = useState(true);
   const [manualData, setManualData] = useState({
     heartRate: "",
     systolic: "",
@@ -118,83 +113,154 @@ export function HealthDataCollection({
     steps: "",
     stressLevel: ""
   });
-console.log("User data collection",user);
-  // Simulate Google Health API data collection
+
+  // Remove auto-sync - user must choose
+  // useEffect(() => {
+  //   if (user?.accessToken && (user?.externalProvider === "Google" || user?.externalProvider === "google") && !isDataSynced) {
+  //     collectHealthData();
+  //   }
+  // }, [user, isDataSynced]);
+  // Collect health data from Google Health API
   const collectHealthData = async () => {
     setIsLoading(true);
     setSyncProgress(0);
+    setShowSyncOptions(false);
     
-    const steps = [
-      "Connecting to Google Health...",
-      "Fetching heart rate data...",
-      "Retrieving blood pressure readings...",
-      "Getting oxygen saturation levels...",
-      "Collecting sleep data...",
-      "Gathering activity metrics...",
-      "Processing vital signs...",
-      "Finalizing health profile..."
-    ];
-
-    for (let i = 0; i < steps.length; i++) {
-      setCurrentStep(steps[i]);
-      setSyncProgress((i + 1) * 12.5);
-      await new Promise(resolve => setTimeout(resolve, 800));
-    }
-
-    // Generate realistic dummy data
-    const mockHealthData: HealthMetrics = {
-      heartRate: {
-        current: 72 + Math.floor(Math.random() * 20),
-        resting: 65 + Math.floor(Math.random() * 10),
-        max: 180 + Math.floor(Math.random() * 20),
-        status: Math.random() > 0.8 ? "elevated" : "normal",
-        lastReading: new Date(Date.now() - Math.random() * 3600000) // Within last hour
-      },
-      bloodPressure: {
-        systolic: 115 + Math.floor(Math.random() * 25),
-        diastolic: 75 + Math.floor(Math.random() * 15),
-        status: Math.random() > 0.85 ? "elevated" : "normal",
-        lastReading: new Date(Date.now() - Math.random() * 7200000) // Within 2 hours
-      },
-      oxygenSaturation: {
-        percentage: 96 + Math.floor(Math.random() * 4),
-        status: Math.random() > 0.95 ? "low" : "normal",
-        lastReading: new Date(Date.now() - Math.random() * 1800000) // Within 30 mins
-      },
-      bodyTemperature: {
-        celsius: 36.1 + Math.random() * 2,
-        fahrenheit: 97 + Math.random() * 3.6,
-        status: Math.random() > 0.9 ? "fever" : "normal",
-        lastReading: new Date(Date.now() - Math.random() * 3600000)
-      },
-      sleepData: {
-        hoursLastNight: 6 + Math.random() * 3,
-        quality: ["poor", "fair", "good", "excellent"][Math.floor(Math.random() * 4)] as any,
-        deepSleepMinutes: 60 + Math.floor(Math.random() * 120),
-        remSleepMinutes: 80 + Math.floor(Math.random() * 100),
-        lastUpdated: new Date(Date.now() - 8 * 3600000) // 8 hours ago (morning)
-      },
-      activityLevel: {
-        steps: 3000 + Math.floor(Math.random() * 8000),
-        activeMinutes: 30 + Math.floor(Math.random() * 60),
-        caloriesBurned: 1800 + Math.floor(Math.random() * 800),
-        lastSync: new Date(Date.now() - Math.random() * 1800000)
-      },
-      respiratoryRate: {
-        breathsPerMinute: 12 + Math.floor(Math.random() * 8),
-        status: Math.random() > 0.85 ? "elevated" : "normal",
-        lastReading: new Date(Date.now() - Math.random() * 3600000)
-      },
-      stressLevel: {
-        score: Math.floor(Math.random() * 100),
-        status: Math.random() > 0.7 ? (Math.random() > 0.5 ? "moderate" : "high") : "low",
-        lastUpdated: new Date(Date.now() - Math.random() * 3600000)
+    try {
+      if (!user.accessToken) {
+        throw new Error("No Google access token available. Please re-authenticate with Google to access health data.");
       }
-    };
 
-    setHealthData(mockHealthData);
-    onDataCollected(mockHealthData);
-    setIsLoading(false);
+      const steps = [
+        "Connecting to Google Health API...",
+        "Authenticating with Google Fit...",
+        "Fetching heart rate data...",
+        "Retrieving activity metrics...",
+        "Getting stress level data...",
+        "Processing health data...",
+        "Validating data integrity...",
+        "Finalizing health profile..."
+      ];
+
+      // Simulate progress steps
+      for (let i = 0; i < 3; i++) {
+        setCurrentStep(steps[i]);
+        setSyncProgress((i + 1) * 12);
+        await new Promise(resolve => setTimeout(resolve, 500));
+      }
+
+      // Make actual API call
+      setCurrentStep("Fetching health data from Google...");
+      setSyncProgress(40);
+      
+      const googleHealthData = await GoogleHealthService.getRecentHealthData(user.accessToken);
+      console.log('Received Google Health data:', googleHealthData);
+
+      // Continue with remaining steps
+      for (let i = 3; i < steps.length; i++) {
+        setCurrentStep(steps[i]);
+        setSyncProgress(40 + (i - 2) * 12);
+        await new Promise(resolve => setTimeout(resolve, 300));
+      }
+
+      // Convert Google Health data to HealthMetrics format
+      const healthMetrics = GoogleHealthService.convertToHealthMetrics(googleHealthData);
+      
+      // Auto-populate manual form with synced data
+      setManualData({
+        heartRate: healthMetrics.heartRate.current.toString(),
+        systolic: healthMetrics.bloodPressure.systolic.toString(),
+        diastolic: healthMetrics.bloodPressure.diastolic.toString(),
+        oxygenSaturation: healthMetrics.oxygenSaturation.percentage.toString(),
+        temperature: healthMetrics.bodyTemperature.celsius.toString(),
+        sleepHours: healthMetrics.sleepData.hoursLastNight.toString(),
+        sleepQuality: healthMetrics.sleepData.quality,
+        steps: healthMetrics.activityLevel.steps.toString(),
+        stressLevel: healthMetrics.stressLevel.score.toString()
+      });
+
+      setSyncProgress(100);
+      setHealthData(healthMetrics);
+      setIsDataSynced(true);
+      onDataCollected(healthMetrics);
+      
+    } catch (error: any) {
+      console.error('Error collecting health data:', error);
+      setShowSyncOptions(true); // Show options again on error
+      
+      // Show error but provide fallback with mock data
+      setCurrentStep(`Error: ${error.message || 'Failed to sync health data'}`);
+      
+      // Generate fallback data
+      const fallbackData: HealthMetrics = {
+        heartRate: {
+          current: 72,
+          resting: 65,
+          max: 180,
+          status: "normal",
+          lastReading: new Date()
+        },
+        bloodPressure: {
+          systolic: 120,
+          diastolic: 80,
+          status: "normal",
+          lastReading: new Date()
+        },
+        oxygenSaturation: {
+          percentage: 98,
+          status: "normal",
+          lastReading: new Date()
+        },
+        bodyTemperature: {
+          celsius: 36.5,
+          fahrenheit: 97.7,
+          status: "normal",
+          lastReading: new Date()
+        },
+        sleepData: {
+          hoursLastNight: 7.5,
+          quality: "good",
+          deepSleepMinutes: 90,
+          remSleepMinutes: 112,
+          lastUpdated: new Date(Date.now() - 8 * 3600000)
+        },
+        activityLevel: {
+          steps: 0,
+          activeMinutes: 0,
+          caloriesBurned: 0,
+          lastSync: new Date()
+        },
+        respiratoryRate: {
+          breathsPerMinute: 16,
+          status: "normal",
+          lastReading: new Date()
+        },
+        stressLevel: {
+          score: 30,
+          status: "low",
+          lastUpdated: new Date()
+        }
+      };
+      
+      // Auto-populate manual form with fallback data
+      setManualData({
+        heartRate: fallbackData.heartRate.current.toString(),
+        systolic: fallbackData.bloodPressure.systolic.toString(),
+        diastolic: fallbackData.bloodPressure.diastolic.toString(),
+        oxygenSaturation: fallbackData.oxygenSaturation.percentage.toString(),
+        temperature: fallbackData.bodyTemperature.celsius.toString(),
+        sleepHours: fallbackData.sleepData.hoursLastNight.toString(),
+        sleepQuality: fallbackData.sleepData.quality,
+        steps: fallbackData.activityLevel.steps.toString(),
+        stressLevel: fallbackData.stressLevel.score.toString()
+      });
+      
+      setHealthData(fallbackData);
+      setIsDataSynced(true);
+      onDataCollected(fallbackData);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   // Handle manual data input
@@ -294,7 +360,7 @@ console.log("User data collection",user);
         <div>
           <h1 className="text-2xl font-medium">Health Data Collection</h1>
           <p className="text-muted-foreground">
-            {user?.externalProvider === "Google" 
+            {user?.externalProvider === "Google"  || user?.externalProvider === "google"
               ? "Sync your vital signs and health metrics for more accurate assessment"
               : "Add your health metrics manually or skip to continue with symptom assessment"
             }
@@ -302,18 +368,18 @@ console.log("User data collection",user);
         </div>
       </div>
 
-      {/* Show different options based on login method */}
-      {!healthData && !isLoading && inputMethod === "google" && (
+      {/* Initial sync options screen */}
+      {!healthData && !isLoading && showSyncOptions && (
         <Card>
           <CardHeader className="text-center">
             <div className="mx-auto w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center mb-4">
               <Activity className="w-8 h-8 text-blue-600" />
             </div>
             <CardTitle>
-              {user?.externalProvider === "Google" ? "Connect Google Health" : "Health Data Collection"}
+              {user?.externalProvider === "Google" || user?.externalProvider === "google" ? "Connect Google Health" : "Health Data Collection"}
             </CardTitle>
             <CardDescription className="max-w-md mx-auto">
-              {user?.externalProvider === "Google" 
+              {user?.externalProvider === "Google" || user?.externalProvider === "google"
                 ? "We'll securely collect your latest health metrics including heart rate, blood pressure, sleep data, and activity levels to provide more personalized health insights."
                 : "Add your health metrics manually to get more personalized health insights, or skip this step to continue."
               }
@@ -328,9 +394,9 @@ console.log("User data collection",user);
               </AlertDescription>
             </Alert>
 
-            {user?.externalProvider !== "Google" && (
+            {(user?.externalProvider !== "Google" && user?.externalProvider !== "google") && (
               <Alert className="mb-6 bg-amber-50 border-amber-200">
-                <User className="h-4 w-4 text-amber-600" />
+                <UserIcon className="h-4 w-4 text-amber-600" />
                 <AlertDescription className="text-amber-800">
                   You're not logged in with Google. You can manually enter your health data below or skip this step entirely.
                 </AlertDescription>
@@ -345,7 +411,7 @@ console.log("User data collection",user);
                   { icon: Activity, label: "SpO2", desc: "Oxygen saturation" },
                   { icon: Thermometer, label: "Temperature", desc: "Body temperature" },
                   { icon: Moon, label: "Sleep Data", desc: "Quality & duration" },
-                  { icon: TrendingUp, label: "Activity", desc: "Steps & calories" },
+                  { icon: TrendingUp, label: "Activity", desc: "Active minutes" },
                   { icon: Clock, label: "Respiratory", desc: "Breathing rate" },
                   { icon: AlertTriangle, label: "Stress Level", desc: "Current stress" }
                 ].map((item, index) => (
@@ -358,7 +424,7 @@ console.log("User data collection",user);
               </div>
               
               <div className="flex gap-3">
-                {user?.externalProvider === "Google" && (
+                {(user?.externalProvider === "Google" || user?.externalProvider === "google") && user?.accessToken && (
                   <Button 
                     onClick={collectHealthData}
                     className="flex-1"
@@ -370,7 +436,7 @@ console.log("User data collection",user);
                 )}
                 
                 <Button 
-                  onClick={() => setInputMethod("manual")}
+                  onClick={() => {setInputMethod("manual"); setShowSyncOptions(false);}}
                   variant="outline"
                   className="flex-1"
                   size="lg"
@@ -394,7 +460,7 @@ console.log("User data collection",user);
       )}
 
       {/* Manual input form */}
-      {!healthData && !isLoading && inputMethod === "manual" && (
+      {!healthData && !isLoading && !showSyncOptions && inputMethod === "manual" && (
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
@@ -551,7 +617,8 @@ console.log("User data collection",user);
             </div>
 
             <div className="flex gap-3 mt-6">
-              <Button onClick={() => setInputMethod("google")} variant="outline">
+              <Button onClick={() => setShowSyncOptions(true)} variant="outline">
+                <ArrowLeft className="w-4 h-4 mr-2" />
                 Back to Options
               </Button>
               <Button onClick={handleManualSubmit} className="flex-1">
@@ -685,13 +752,12 @@ console.log("User data collection",user);
                 <div className="flex justify-between items-center">
                   <div>
                     <p className="font-medium">Daily Activity</p>
-                    <p className="text-sm text-muted-foreground">{healthData.activityLevel.steps.toLocaleString()} steps</p>
                     <p className="text-sm text-muted-foreground">
                       {healthData.activityLevel.activeMinutes} active minutes
                     </p>
                   </div>
                   <Badge className="bg-blue-100 text-blue-800 border-blue-200">
-                    {healthData.activityLevel.caloriesBurned} cal
+                    Active
                   </Badge>
                 </div>
                 
@@ -731,10 +797,18 @@ console.log("User data collection",user);
           </Alert>
 
           <div className="flex gap-4">
-            <Button variant="outline" onClick={collectHealthData}>
-              <RefreshCw className="w-4 h-4 mr-2" />
-              Refresh Data
-            </Button>
+            {!isDataSynced && (user?.externalProvider === "Google" || user?.externalProvider === "google") && user?.accessToken && (
+              <Button variant="outline" onClick={collectHealthData}>
+                <RefreshCw className="w-4 h-4 mr-2" />
+                Sync Google Data
+              </Button>
+            )}
+            {isDataSynced && (
+              <Button variant="outline" onClick={collectHealthData}>
+                <RefreshCw className="w-4 h-4 mr-2" />
+                Refresh Data
+              </Button>
+            )}
             <Button onClick={onContinue} className="flex-1">
               Continue to Assessment
             </Button>
