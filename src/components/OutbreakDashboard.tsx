@@ -2,28 +2,22 @@ import React, { useState } from 'react';
 import { Button } from './ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card';
 import { Badge } from './ui/badge';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
-import { Input } from './ui/input';
-import { ScrollArea } from './ui/scroll-area';
-import { Progress } from './ui/progress';
 import { 
   ArrowLeft, 
   Globe, 
   MapPin, 
   AlertTriangle, 
-  Clock, 
-  TrendingUp,
-  TrendingDown,
-  Minus,
   Users,
   Activity,
-  Filter,
-  Search,
   ExternalLink,
-  RefreshCw
+  RefreshCw,
+  TrendingUp,
+  Clock,
+  Minus,
+  TrendingDown
 } from 'lucide-react';
-import type { OutbreakData, LocationData } from '../App';
+import type { OutbreakData, LocationData } from '../types/outbreaks';
+import { Progress } from './ui/progress';
 
 interface OutbreakDashboardProps {
   globalOutbreaks: OutbreakData[];
@@ -40,221 +34,136 @@ export function OutbreakDashboard({
   onBack, 
   lastUpdated 
 }: OutbreakDashboardProps) {
-  const [searchQuery, setSearchQuery] = useState('');
-  const [filterSeverity, setFilterSeverity] = useState('all');
-  const [sortBy, setSortBy] = useState('severity');
+  const [selectedDashboard, setSelectedDashboard] = useState<string | null>(null);
+  const [showEmbedded, setShowEmbedded] = useState(false);
+
+  // NICD Dashboard configurations
+  const nicdDashboards = {
+    clinical: [
+      {
+        id: 'tb-dashboard',
+        name: "End TB Campaign Dashboard",
+        url: "https://www.nicd.ac.za/tb-naat-dashboard/",
+        embedUrl: "https://www.nicd.ac.za/tb-naat-dashboard/",
+        description: "Tuberculosis surveillance and NAAT testing data",
+        severity: "high",
+        category: "Respiratory Disease",
+        icon: <Activity className="h-5 w-5" />,
+        embeddable: true
+      },
+      {
+        id: 'cholera-dashboard',
+        name: "Cholera Dashboard", 
+        url: "https://www.nicd.ac.za/cholera-dashboard/",
+        embedUrl: "https://www.nicd.ac.za/cholera-dashboard/",
+        description: "Cholera outbreak monitoring and case tracking",
+        severity: "critical",
+        category: "Infectious Disease",
+        icon: <AlertTriangle className="h-5 w-5" />,
+        embeddable: true
+      },
+      {
+        id: 'measles-dashboard',
+        name: "Measles/Rubella Dashboard",
+        url: "https://www.nicd.ac.za/measles-rubella-dashboard/",
+        embedUrl: "https://www.nicd.ac.za/measles-rubella-dashboard/",
+        description: "Measles and rubella surveillance data",
+        severity: "medium",
+        category: "Vaccine-Preventable",
+        icon: <Users className="h-5 w-5" />,
+        embeddable: true
+      },
+      {
+        id: 'mpox-dashboard',
+        name: "Mpox Dashboard",
+        url: "https://www.nicd.ac.za/mpox-dashboard/",
+        embedUrl: "https://www.nicd.ac.za/mpox-dashboard/",
+        description: "Mpox (monkeypox) case monitoring",
+        severity: "high", 
+        category: "Infectious Disease",
+        icon: <AlertTriangle className="h-5 w-5" />,
+        embeddable: true
+      },
+      {
+        id: 'rabies-dashboard',
+        name: "Rabies Dashboard",
+        url: "https://www.nicd.ac.za/rabies-dashboard/",
+        embedUrl: "https://www.nicd.ac.za/rabies-dashboard/",
+        description: "Rabies surveillance and prevention tracking",
+        severity: "medium",
+        category: "Zoonotic Disease",
+        icon: <Activity className="h-5 w-5" />,
+        embeddable: true
+      },
+      {
+        id: 'amr-dashboard',
+        name: "Antimicrobial Resistance Dashboard",
+        url: "https://www.nicd.ac.za/anti-microbial-resistance-surveillance-dashboard/",
+        embedUrl: "https://www.nicd.ac.za/anti-microbial-resistance-surveillance-dashboard/",
+        description: "AMR surveillance and resistance patterns",
+        severity: "high",
+        category: "Drug Resistance",
+        icon: <TrendingUp className="h-5 w-5" />,
+        embeddable: true
+      }
+    ],
+    environmental: [
+      {
+        id: 'covid-wastewater',
+        name: "SARS-CoV-2 Wastewater Surveillance",
+        url: "https://www.nicd.ac.za/sars-cov-2-wastewater-surveillance/",
+        embedUrl: "https://www.nicd.ac.za/sars-cov-2-wastewater-surveillance/",
+        description: "COVID-19 environmental surveillance",
+        icon: <Globe className="h-5 w-5 text-blue-600" />,
+        embeddable: true
+      },
+      {
+        id: 'mpox-wastewater',
+        name: "Mpox Wastewater Surveillance",
+        url: "https://www.nicd.ac.za/mpox-wastewater-surveillance-dashboard/",
+        embedUrl: "https://www.nicd.ac.za/mpox-wastewater-surveillance-dashboard/",
+        description: "Mpox environmental detection",
+        icon: <Globe className="h-5 w-5 text-orange-600" />,
+        embeddable: true
+      },
+      {
+        id: 'measles-wastewater',
+        name: "Measles Wastewater Surveillance", 
+        url: "https://www.nicd.ac.za/measles-wastewater-surveillance-dashboard/",
+        embedUrl: "https://www.nicd.ac.za/measles-wastewater-surveillance-dashboard/",
+        description: "Measles environmental surveillance",
+        icon: <Globe className="h-5 w-5 text-green-600" />,
+        embeddable: true
+      }
+    ]
+  };
+
+  const handleViewDashboard = (dashboardId: string, embedded: boolean = true) => {
+    setSelectedDashboard(dashboardId);
+    setShowEmbedded(embedded);
+  };
+
+  const handleCloseDashboard = () => {
+    setSelectedDashboard(null);
+    setShowEmbedded(false);
+  };
+
+  const getCurrentDashboard = () => {
+    if (selectedDashboard === 'nicd-main') {
+      return {
+        id: 'nicd-main',
+        name: 'NICD Official Website',
+        description: 'National Institute for Communicable Diseases - Full Website Access',
+        url: 'https://www.nicd.ac.za/',
+        embedUrl: 'https://www.nicd.ac.za/'
+      };
+    }
+    
+    const allDashboards = [...nicdDashboards.clinical, ...nicdDashboards.environmental];
+    return allDashboards.find(d => d.id === selectedDashboard);
+  };
 
   const allOutbreaks = [...globalOutbreaks, ...localOutbreaks];
-
-  const getSeverityConfig = (severity: string) => {
-    switch (severity) {
-      case 'critical':
-        return {
-          color: 'bg-red-100 text-red-800 border-red-200',
-          bgColor: 'bg-red-50 border-red-200',
-          icon: <AlertTriangle className="h-4 w-4" />,
-          priority: 4
-        };
-      case 'high':
-        return {
-          color: 'bg-orange-100 text-orange-800 border-orange-200',
-          bgColor: 'bg-orange-50 border-orange-200',
-          icon: <TrendingUp className="h-4 w-4" />,
-          priority: 3
-        };
-      case 'medium':
-        return {
-          color: 'bg-yellow-100 text-yellow-800 border-yellow-200',
-          bgColor: 'bg-yellow-50 border-yellow-200',
-          icon: <Activity className="h-4 w-4" />,
-          priority: 2
-        };
-      case 'low':
-        return {
-          color: 'bg-green-100 text-green-800 border-green-200',
-          bgColor: 'bg-green-50 border-green-200',
-          icon: <Activity className="h-4 w-4" />,
-          priority: 1
-        };
-      default:
-        return {
-          color: 'bg-gray-100 text-gray-800 border-gray-200',
-          bgColor: 'bg-gray-50 border-gray-200',
-          icon: <Activity className="h-4 w-4" />,
-          priority: 0
-        };
-    }
-  };
-
-  const getTrendIcon = (direction?: string) => {
-    switch (direction) {
-      case 'up':
-        return <TrendingUp className="h-4 w-4 text-red-600" />;
-      case 'down':
-        return <TrendingDown className="h-4 w-4 text-green-600" />;
-      case 'stable':
-        return <Minus className="h-4 w-4 text-gray-600" />;
-      default:
-        return <Activity className="h-4 w-4 text-gray-600" />;
-    }
-  };
-
-  const formatDate = (dateString: string) => {
-    try {
-      const date = new Date(dateString);
-      const now = new Date();
-      const diffInHours = Math.floor((now.getTime() - date.getTime()) / (1000 * 60 * 60));
-      
-      if (diffInHours < 1) return 'Less than 1 hour ago';
-      if (diffInHours < 24) return `${diffInHours} hour${diffInHours > 1 ? 's' : ''} ago`;
-      
-      const diffInDays = Math.floor(diffInHours / 24);
-      if (diffInDays < 7) return `${diffInDays} day${diffInDays > 1 ? 's' : ''} ago`;
-      
-      return date.toLocaleDateString('en-US', {
-        month: 'short',
-        day: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit'
-      });
-    } catch {
-      return 'Unknown date';
-    }
-  };
-
-  const filteredOutbreaks = (outbreaks: OutbreakData[]) => {
-    return outbreaks
-      .filter(outbreak => {
-        const matchesSearch = outbreak.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                             outbreak.location.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                             outbreak.description.toLowerCase().includes(searchQuery.toLowerCase());
-        const matchesSeverity = filterSeverity === 'all' || outbreak.severity === filterSeverity;
-        return matchesSearch && matchesSeverity;
-      })
-      .sort((a, b) => {
-        switch (sortBy) {
-          case 'severity':
-            return getSeverityConfig(b.severity).priority - getSeverityConfig(a.severity).priority;
-          case 'date':
-            return new Date(b.lastUpdated).getTime() - new Date(a.lastUpdated).getTime();
-          case 'cases':
-            return (b.caseCount || 0) - (a.caseCount || 0);
-          case 'location':
-            return a.location.localeCompare(b.location);
-          default:
-            return 0;
-        }
-      });
-  };
-
-  const getStatistics = () => {
-    const total = allOutbreaks.length;
-    const critical = allOutbreaks.filter(o => o.severity === 'critical').length;
-    const high = allOutbreaks.filter(o => o.severity === 'high').length;
-    const totalCases = allOutbreaks.reduce((sum, o) => sum + (o.caseCount || 0), 0);
-    const totalDeaths = allOutbreaks.reduce((sum, o) => sum + (o.deathCount || 0), 0);
-    
-    return { total, critical, high, totalCases, totalDeaths };
-  };
-
-  const stats = getStatistics();
-
-  const OutbreakCard = ({ outbreak }: { outbreak: OutbreakData }) => {
-    const config = getSeverityConfig(outbreak.severity);
-    
-    return (
-      <Card className={`transition-all hover:shadow-md ${config.bgColor}`}>
-        <CardHeader className="pb-3">
-          <div className="flex items-start justify-between">
-            <div className="flex-1">
-              <CardTitle className="text-base leading-tight mb-1">{outbreak.title}</CardTitle>
-              <div className="flex items-center space-x-2">
-                <Badge className={config.color} variant="outline">
-                  {config.icon}
-                  <span className="ml-1 capitalize">{outbreak.severity}</span>
-                </Badge>
-                <div className="flex items-center text-xs text-muted-foreground">
-                  {getTrendIcon(outbreak.trendDirection)}
-                  <span className="ml-1">{outbreak.trendDirection || 'stable'}</span>
-                </div>
-              </div>
-            </div>
-          </div>
-        </CardHeader>
-        <CardContent className="pt-0">
-          <p className="text-sm text-muted-foreground mb-4 line-clamp-2">
-            {outbreak.description}
-          </p>
-          
-          <div className="grid grid-cols-2 gap-4 mb-4">
-            <div>
-              <p className="text-xs text-muted-foreground mb-1">Location</p>
-              <div className="flex items-center">
-                <MapPin className="h-3 w-3 mr-1" />
-                <span className="text-sm truncate">{outbreak.location}</span>
-              </div>
-            </div>
-            <div>
-              <p className="text-xs text-muted-foreground mb-1">Source</p>
-              <Badge variant="secondary" className="text-xs">
-                {outbreak.source}
-              </Badge>
-            </div>
-          </div>
-          
-          {outbreak.caseCount && (
-            <div className="space-y-2 mb-4">
-              <div className="flex justify-between text-xs">
-                <span>Cases: {outbreak.caseCount.toLocaleString()}</span>
-                <span>Deaths: {(outbreak.deathCount || 0).toLocaleString()}</span>
-              </div>
-              {outbreak.recoveredCount && (
-                <div className="space-y-1">
-                  <div className="flex justify-between text-xs text-muted-foreground">
-                    <span>Recovery Rate</span>
-                    <span>{Math.round((outbreak.recoveredCount / outbreak.caseCount) * 100)}%</span>
-                  </div>
-                  <Progress 
-                    value={(outbreak.recoveredCount / outbreak.caseCount) * 100} 
-                    className="h-1"
-                  />
-                </div>
-              )}
-            </div>
-          )}
-          
-          {outbreak.symptoms && outbreak.symptoms.length > 0 && (
-            <div className="mb-4">
-              <p className="text-xs text-muted-foreground mb-2">Key Symptoms</p>
-              <div className="flex flex-wrap gap-1">
-                {outbreak.symptoms.slice(0, 4).map((symptom, index) => (
-                  <Badge key={index} variant="outline" className="text-xs capitalize">
-                    {symptom}
-                  </Badge>
-                ))}
-                {outbreak.symptoms.length > 4 && (
-                  <Badge variant="outline" className="text-xs">
-                    +{outbreak.symptoms.length - 4}
-                  </Badge>
-                )}
-              </div>
-            </div>
-          )}
-          
-          <div className="flex items-center justify-between text-xs text-muted-foreground">
-            <div className="flex items-center">
-              <Clock className="h-3 w-3 mr-1" />
-              <span>{formatDate(outbreak.lastUpdated)}</span>
-            </div>
-            <Button variant="ghost" size="sm" className="h-6 px-2 text-xs">
-              <ExternalLink className="h-3 w-3 mr-1" />
-              Details
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
-    );
-  };
 
   return (
     <div className="container mx-auto px-4 py-8 max-w-7xl">
@@ -265,13 +174,13 @@ export function OutbreakDashboard({
         </Button>
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-3xl text-primary mb-2">Global Health Monitoring</h1>
+            <h1 className="text-3xl text-primary mb-2">NICD Health Surveillance</h1>
             <p className="text-muted-foreground">
-              Real-time disease outbreak tracking and health alerts
+              Official health monitoring dashboards from the National Institute for Communicable Diseases
               {location && (
                 <span className="block mt-1">
                   <MapPin className="h-3 w-3 inline mr-1" />
-                  {location.city ? `${location.city}, ` : ''}{location.country}
+                  South Africa - {location.city ? `${location.city}, ` : ''}{location.country}
                 </span>
               )}
             </p>
@@ -283,177 +192,359 @@ export function OutbreakDashboard({
                 <span>Updated {lastUpdated.toLocaleTimeString()}</span>
               </div>
             )}
+            <Button 
+              className="mt-2 bg-blue-600 hover:bg-blue-700"
+              onClick={() => window.open('https://www.nicd.ac.za/dashboards/', '_blank', 'noopener,noreferrer')}
+            >
+              <ExternalLink className="h-4 w-4 mr-2" />
+              Visit NICD
+            </Button>
           </div>
         </div>
       </div>
 
-      {/* Statistics Overview */}
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-8">
+      {/* NICD Content */}
+      <div className="space-y-6">
+        {/* NICD Dashboards Header */}
         <Card>
-          <CardContent className="p-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-muted-foreground">Total Outbreaks</p>
-                <p className="text-2xl">{stats.total}</p>
-              </div>
-              <Globe className="h-8 w-8 text-blue-600" />
+          <CardHeader>
+            <CardTitle className="flex items-center">
+              <Activity className="h-5 w-5 mr-2" />
+              NICD Health Surveillance Dashboards
+            </CardTitle>
+            <CardDescription>
+              Official health surveillance dashboards from the National Institute for Communicable Diseases (NICD) of South Africa.
+              Click on any dashboard to open it in a new tab for real-time data.
+            </CardDescription>
+          </CardHeader>
+        </Card>
+
+        {/* Quick Access to Most Important Dashboards */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center">
+              <TrendingUp className="h-5 w-5 mr-2 text-red-600" />
+              Priority Health Monitoring
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid md:grid-cols-2 gap-4">
+              <Button 
+                className="h-20 bg-red-600 hover:bg-red-700 text-white flex flex-col items-center justify-center space-y-2"
+                onClick={() => handleViewDashboard('cholera-dashboard')}
+              >
+                <AlertTriangle className="h-6 w-6" />
+                <span className="font-medium">Cholera Dashboard</span>
+                <span className="text-xs opacity-90">View Embedded</span>
+              </Button>
+              <Button 
+                className="h-20 bg-orange-600 hover:bg-orange-700 text-white flex flex-col items-center justify-center space-y-2"
+                onClick={() => handleViewDashboard('tb-dashboard')}
+              >
+                <Activity className="h-6 w-6" />
+                <span className="font-medium">TB Campaign Dashboard</span>
+                <span className="text-xs opacity-90">View Embedded</span>
+              </Button>
             </div>
           </CardContent>
         </Card>
-        
+
+        {/* Clinical Dashboards */}
         <Card>
-          <CardContent className="p-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-muted-foreground">Critical</p>
-                <p className="text-2xl text-red-600">{stats.critical}</p>
-              </div>
-              <AlertTriangle className="h-8 w-8 text-red-600" />
+          <CardHeader>
+            <CardTitle className="flex items-center">
+              <Users className="h-5 w-5 mr-2 text-blue-600" />
+              Clinical Disease Dashboards
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {nicdDashboards.clinical.map((dashboard) => (
+                <Card key={dashboard.id} className="hover:shadow-lg transition-all duration-200 cursor-pointer border-2 hover:border-blue-300">
+                  <CardContent className="p-6">
+                    <div className="flex items-start justify-between mb-4">
+                      <div className="space-y-2">
+                        <div className="flex items-center space-x-2">
+                          {dashboard.icon}
+                          <h4 className="font-semibold text-sm leading-tight">{dashboard.name}</h4>
+                        </div>
+                        <p className="text-xs text-muted-foreground">{dashboard.description}</p>
+                        <Badge 
+                          variant={dashboard.severity === 'critical' ? 'destructive' : 
+                                 dashboard.severity === 'high' ? 'default' : 'secondary'}
+                          className="text-xs"
+                        >
+                          {dashboard.category}
+                        </Badge>
+                      </div>
+                    </div>
+                    <div className="space-y-2">
+                      <Button 
+                        className="w-full"
+                        onClick={() => handleViewDashboard(dashboard.id)}
+                      >
+                        <Activity className="h-4 w-4 mr-2" />
+                        View Embedded
+                      </Button>
+                      <Button 
+                        variant="outline"
+                        className="w-full"
+                        onClick={() => window.open(dashboard.url, '_blank', 'noopener,noreferrer')}
+                      >
+                        <ExternalLink className="h-4 w-4 mr-2" />
+                        Open in New Tab
+                      </Button>
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
             </div>
           </CardContent>
         </Card>
-        
+
+        {/* Wastewater Surveillance Dashboards */}
         <Card>
-          <CardContent className="p-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-muted-foreground">High Priority</p>
-                <p className="text-2xl text-orange-600">{stats.high}</p>
-              </div>
-              <TrendingUp className="h-8 w-8 text-orange-600" />
+          <CardHeader>
+            <CardTitle className="flex items-center">
+              <Globe className="h-5 w-5 mr-2 text-green-600" />
+              Environmental Surveillance (Wastewater)
+            </CardTitle>
+            <CardDescription>
+              Early warning systems through wastewater monitoring for disease detection.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="grid md:grid-cols-3 gap-4">
+              {nicdDashboards.environmental.map((dashboard) => (
+                <Card key={dashboard.id} className="hover:shadow-lg transition-all duration-200 cursor-pointer">
+                  <CardContent className="p-6">
+                    <div className="space-y-4">
+                      <div className="flex items-center space-x-3">
+                        {dashboard.icon}
+                        <h4 className="font-medium text-sm">{dashboard.name}</h4>
+                      </div>
+                      <p className="text-xs text-muted-foreground">{dashboard.description}</p>
+                      <div className="space-y-2">
+                        <Button 
+                          className="w-full"
+                          onClick={() => handleViewDashboard(dashboard.id)}
+                        >
+                          <Activity className="h-4 w-4 mr-2" />
+                          View Embedded
+                        </Button>
+                        <Button 
+                          variant="outline" 
+                          className="w-full"
+                          onClick={() => window.open(dashboard.url, '_blank', 'noopener,noreferrer')}
+                        >
+                          <ExternalLink className="h-4 w-4 mr-2" />
+                          Open in New Tab
+                        </Button>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
             </div>
           </CardContent>
         </Card>
-        
-        <Card>
-          <CardContent className="p-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-muted-foreground">Total Cases</p>
-                <p className="text-2xl">{stats.totalCases.toLocaleString()}</p>
+
+        {/* Power BI Integration Info */}
+        <Card className="bg-blue-50 border-blue-200">
+          <CardHeader>
+            <CardTitle className="flex items-center text-blue-800">
+              <Activity className="h-5 w-5 mr-2" />
+              NICD Website & Power BI Dashboards
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-4">
+              <p className="text-sm text-blue-700">
+                Access the full NICD website with all dashboards, or view specific Power BI analytics 
+                for comprehensive health surveillance data.
+              </p>
+              <div className="grid md:grid-cols-3 gap-4">
+                <Button 
+                  className="bg-blue-600 hover:bg-blue-700"
+                  onClick={() => {
+                    setSelectedDashboard('nicd-main');
+                    setShowEmbedded(true);
+                  }}
+                >
+                  <Globe className="h-4 w-4 mr-2" />
+                  View NICD Website
+                </Button>
+                <Button 
+                  variant="outline"
+                  onClick={() => window.open('https://www.nicd.ac.za/publications/', '_blank', 'noopener,noreferrer')}
+                >
+                  <ExternalLink className="h-4 w-4 mr-2" />
+                  Publications
+                </Button>
               </div>
-              <Users className="h-8 w-8 text-purple-600" />
             </div>
           </CardContent>
         </Card>
-        
-        <Card>
+
+        {/* Disclaimer */}
+        <Card className="border-amber-200 bg-amber-50">
           <CardContent className="p-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-muted-foreground">Fatalities</p>
-                <p className="text-2xl">{stats.totalDeaths.toLocaleString()}</p>
+            <div className="flex items-start space-x-3">
+              <AlertTriangle className="h-5 w-5 text-amber-600 mt-0.5 flex-shrink-0" />
+              <div className="text-sm">
+                <p className="font-medium text-amber-800 mb-1">Official NICD Data</p>
+                <p className="text-amber-700">
+                  These dashboards provide official health surveillance data from the National Institute for Communicable Diseases. 
+                  Data is updated regularly and provides real-time insights for public health monitoring and response.
+                </p>
               </div>
-              <Activity className="h-8 w-8 text-gray-600" />
             </div>
           </CardContent>
         </Card>
       </div>
 
-      {/* Filters and Search */}
-      <Card className="mb-6">
-        <CardHeader>
-          <CardTitle className="flex items-center">
-            <Filter className="h-5 w-5 mr-2" />
-            Filters & Search
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="grid md:grid-cols-4 gap-4">
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-              <Input
-                placeholder="Search outbreaks..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="pl-10"
-              />
+      {/* Embedded Dashboard Modal */}
+      {showEmbedded && selectedDashboard && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-lg w-full h-full max-w-7xl max-h-[90vh] flex flex-col">
+            {/* Modal Header */}
+            <div className="flex items-center justify-between p-4 border-b bg-gray-50 rounded-t-lg">
+              <div className="flex items-center space-x-3">
+                <Activity className="h-5 w-5 text-blue-600" />
+                <div>
+                  <h3 className="font-semibold text-lg">{getCurrentDashboard()?.name}</h3>
+                  <p className="text-sm text-muted-foreground">{getCurrentDashboard()?.description}</p>
+                </div>
+              </div>
+              <div className="flex items-center space-x-2">
+                <Button 
+                  variant="outline"
+                  size="sm"
+                  onClick={() => window.open(getCurrentDashboard()?.url, '_blank', 'noopener,noreferrer')}
+                >
+                  <ExternalLink className="h-4 w-4 mr-2" />
+                  Open in New Tab
+                </Button>
+                <Button 
+                  variant="ghost"
+                  size="sm"
+                  onClick={handleCloseDashboard}
+                >
+                  ✕
+                </Button>
+              </div>
             </div>
-            <Select value={filterSeverity} onValueChange={setFilterSeverity}>
-              <SelectTrigger>
-                <SelectValue placeholder="Severity" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Severities</SelectItem>
-                <SelectItem value="critical">Critical</SelectItem>
-                <SelectItem value="high">High</SelectItem>
-                <SelectItem value="medium">Medium</SelectItem>
-                <SelectItem value="low">Low</SelectItem>
-              </SelectContent>
-            </Select>
-            <Select value={sortBy} onValueChange={setSortBy}>
-              <SelectTrigger>
-                <SelectValue placeholder="Sort by" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="severity">Severity</SelectItem>
-                <SelectItem value="date">Date Updated</SelectItem>
-                <SelectItem value="cases">Case Count</SelectItem>
-                <SelectItem value="location">Location</SelectItem>
-              </SelectContent>
-            </Select>
-            <div className="flex items-center text-sm text-muted-foreground">
-              Showing {filteredOutbreaks(allOutbreaks).length} outbreak{filteredOutbreaks(allOutbreaks).length !== 1 ? 's' : ''}
+
+            {/* Modal Content - iframe */}
+            <div className="flex-1 relative">
+              {getCurrentDashboard() && (
+                <>
+                  <iframe
+                    src={getCurrentDashboard()?.embedUrl}
+                    className="w-full h-full border-0 absolute inset-0"
+                    title={getCurrentDashboard()?.name}
+                    sandbox="allow-scripts allow-same-origin allow-popups allow-forms allow-popups-to-escape-sandbox"
+                    loading="lazy"
+                    referrerPolicy="strict-origin-when-cross-origin"
+                    onLoad={() => {
+                      // Hide loading overlay when iframe loads
+                      const loadingEl = document.querySelector('.iframe-loading') as HTMLElement;
+                      if (loadingEl) loadingEl.style.display = 'none';
+                    }}
+                    onError={(e) => {
+                      console.log('iframe failed to load:', e);
+                      // Show fallback message
+                      const fallbackEl = document.querySelector('#iframe-fallback') as HTMLElement;
+                      if (fallbackEl) {
+                        fallbackEl.classList.remove('hidden');
+                      }
+                    }}
+                  />
+                  
+                  {/* Loading overlay */}
+                  <div className="iframe-loading absolute inset-0 bg-white flex items-center justify-center">
+                    <div className="text-center space-y-4">
+                      <RefreshCw className="h-8 w-8 animate-spin mx-auto text-blue-600" />
+                      <div>
+                        <p className="font-medium">Loading NICD Dashboard...</p>
+                        <p className="text-sm text-muted-foreground">
+                          {getCurrentDashboard()?.name}
+                        </p>
+                        <p className="text-xs text-muted-foreground mt-2">
+                          If this takes too long, try opening in a new tab
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Fallback Card for CORS/Loading Issues */}
+                  <div id="iframe-fallback" className="hidden absolute inset-0 bg-gray-50 p-8 flex items-center justify-center">
+                    <Card className="border-amber-200 bg-amber-50 max-w-md">
+                      <CardContent className="p-6 text-center space-y-4">
+                        <AlertTriangle className="h-12 w-12 text-amber-600 mx-auto" />
+                        <div>
+                          <h3 className="font-semibold text-amber-800 mb-2">Dashboard Loading Issue</h3>
+                          <p className="text-sm text-amber-700 mb-4">
+                            This dashboard may have security restrictions that prevent embedding. 
+                            You can still access it in a new tab for full functionality.
+                          </p>
+                          <Button 
+                            className="bg-amber-600 hover:bg-amber-700"
+                            onClick={() => {
+                              window.open(getCurrentDashboard()?.url, '_blank', 'noopener,noreferrer');
+                              handleCloseDashboard();
+                            }}
+                          >
+                            <ExternalLink className="h-4 w-4 mr-2" />
+                            Open {getCurrentDashboard()?.name}
+                          </Button>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  </div>
+                </>
+              )}
+            </div>
+
+            {/* Modal Footer */}
+            <div className="p-4 border-t bg-gray-50 rounded-b-lg">
+              <div className="flex items-center justify-between text-sm">
+                <div className="flex items-center space-x-4 text-muted-foreground">
+                  <span>🏥 Official NICD Data</span>
+                  <span>🔒 Secure Connection</span>
+                  <span>⚡ Real-time Updates</span>
+                </div>
+                <Button 
+                  variant="ghost" 
+                  size="sm"
+                  onClick={handleCloseDashboard}
+                  className="text-muted-foreground hover:text-foreground"
+                >
+                  Close Dashboard
+                </Button>
+              </div>
             </div>
           </div>
-        </CardContent>
-      </Card>
+        </div>
+      )}
 
-      <Tabs defaultValue="all" className="w-full">
-        <TabsList className="grid w-full grid-cols-3">
-          <TabsTrigger value="all">
-            All Outbreaks ({allOutbreaks.length})
-          </TabsTrigger>
-          <TabsTrigger value="local">
-            Local ({localOutbreaks.length})
-          </TabsTrigger>
-          <TabsTrigger value="global">
-            Global ({globalOutbreaks.length})
-          </TabsTrigger>
-        </TabsList>
-        
-        <TabsContent value="all" className="mt-6">
-          <ScrollArea className="h-[800px]">
-            <div className="grid lg:grid-cols-2 xl:grid-cols-3 gap-4">
-              {filteredOutbreaks(allOutbreaks).map(outbreak => (
-                <OutbreakCard key={outbreak.id} outbreak={outbreak} />
-              ))}
-            </div>
-          </ScrollArea>
-        </TabsContent>
-        
-        <TabsContent value="local" className="mt-6">
-          <ScrollArea className="h-[800px]">
-            {filteredOutbreaks(localOutbreaks).length === 0 ? (
-              <Card>
-                <CardContent className="text-center py-12">
-                  <MapPin className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
-                  <h3 className="text-lg mb-2">No local outbreaks</h3>
-                  <p className="text-muted-foreground">
-                    No disease outbreaks are currently being monitored in your area.
-                  </p>
-                </CardContent>
-              </Card>
-            ) : (
-              <div className="grid lg:grid-cols-2 xl:grid-cols-3 gap-4">
-                {filteredOutbreaks(localOutbreaks).map(outbreak => (
-                  <OutbreakCard key={outbreak.id} outbreak={outbreak} />
-                ))}
+      {/* Fallback Message for Dashboard Loading Issues */}
+      <div className="hidden" id="iframe-fallback">
+        <Card className="border-amber-200 bg-amber-50 mt-4">
+          <CardContent className="p-4">
+            <div className="flex items-start space-x-3">
+              <AlertTriangle className="h-5 w-5 text-amber-600 mt-0.5 flex-shrink-0" />
+              <div className="text-sm">
+                <p className="font-medium text-amber-800 mb-1">Dashboard Loading Notice</p>
+                <p className="text-amber-700">
+                  Some NICD dashboards may require direct access due to security settings. 
+                  If the embedded view doesn't load, please use the "Open in New Tab" option.
+                </p>
               </div>
-            )}
-          </ScrollArea>
-        </TabsContent>
-        
-        <TabsContent value="global" className="mt-6">
-          <ScrollArea className="h-[800px]">
-            <div className="grid lg:grid-cols-2 xl:grid-cols-3 gap-4">
-              {filteredOutbreaks(globalOutbreaks).map(outbreak => (
-                <OutbreakCard key={outbreak.id} outbreak={outbreak} />
-              ))}
             </div>
-          </ScrollArea>
-        </TabsContent>
-      </Tabs>
+          </CardContent>
+        </Card>
+      </div>
     </div>
   );
 }
