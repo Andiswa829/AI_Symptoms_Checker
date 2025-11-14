@@ -54,7 +54,41 @@ export function WelcomeScreen({ onGetStarted, outbreakCount = 0, location, user,
         )}
       </div>
 
-     
+      {/* Priority Health Monitoring Section */}
+      <div className="mb-8">
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center">
+              <Activity className="h-5 w-5 mr-2 text-red-600" />
+              Priority Health Monitoring
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid md:grid-cols-2 gap-4">
+              <Button
+                className="h-16 bg-red-600 hover:bg-red-700 text-white justify-start px-6"
+                onClick={() => navigate('/outbreak-dashboard')}
+              >
+                <AlertTriangle className="h-6 w-6 mr-3" />
+                <div className="text-left">
+                  <div className="font-semibold">Cholera Dashboard</div>
+                  <div className="text-sm opacity-90">View Embedded</div>
+                </div>
+              </Button>
+              <Button
+                className="h-16 bg-orange-600 hover:bg-orange-700 text-white justify-start px-6"
+                onClick={() => navigate('/outbreak-dashboard')}
+              >
+                <Activity className="h-6 w-6 mr-3" />
+                <div className="text-left">
+                  <div className="font-semibold">TB Campaign Dashboard</div>
+                  <div className="text-sm opacity-90">View Embedded</div>
+                </div>
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
 
       {/* Enhanced Outbreak Dashboard */}
       {outbreakCount > 0 && (
