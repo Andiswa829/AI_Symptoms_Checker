@@ -19,6 +19,8 @@ export type User = {
   createdAt: Date;
   lastLogin: Date;
   externalProvider?:string;
+  isDoctor: boolean;
+  isAdmin: boolean;
 };
 
 export type UserType = {
@@ -39,6 +41,8 @@ export type UserType = {
   };
   createdAt: Date;
   lastLogin: Date;
+  isDoctor: boolean;
+  isAdmin: boolean;
 };
 
 export type Symptom = {

@@ -99,6 +99,8 @@ export function LoginScreen({ onLogin }: LoginScreenProps) {
           ].join(' '),
           callback: handleGoogleOAuth2Response,
           include_granted_scopes: true,
+          // Note: OAuth2 token client doesn't return id_token, only access_token
+          // Backend should verify the access_token instead, or use the ID token flow
         });
         
         // Store the client for later use
@@ -134,35 +136,61 @@ export function LoginScreen({ onLogin }: LoginScreenProps) {
     try {
       setIsLoading(true);
       setError("");
-      
+      //debugger;
+
       console.log("Google OAuth2 response:", response);
       console.log("Google access token:", response.access_token);
       console.log("Google ID token:", response.id_token || "Not available");
-      
+
       if (!response.access_token) {
         throw new Error("No Google access token received");
       }
 
-      // Test Google Fit API access
-      console.log("Testing Google Fit API access...");
+      // Try to fetch profile and post full payload to backend first
       try {
-        await GoogleFitService.testGoogleFitAccess(response.access_token);
-        console.log("✅ Google Fit API access successful!");
-      } catch (fitError) {
-        console.warn("⚠️ Google Fit API access failed:", fitError);
-        // Continue with authentication even if Fit API fails
+        const userInfo = await GoogleFitService.getUserProfile(response.access_token);
+        
+        // OAuth2 token client doesn't provide id_token - backend should verify access_token
+        // Or we could fetch an id_token separately if backend requires it
+        const payload = {
+          idToken: response.id_token ?? "", // Use empty string when not provided by OAuth2 flow
+          accessToken: response.access_token, // Backend should verify this token
+          firstName: userInfo.given_name,
+          lastName: userInfo.family_name,
+          email: userInfo.email,
+          picture: userInfo.picture,
+        };
+
+        console.log("Sending to backend - has id_token:", !!payload.idToken, "has access_token:", !!payload.accessToken);
+
+        // Authenticate with backend first
+        const user = await AuthService.loginWithGoogle(payload as any);
+
+        // If backend auth succeeded, then process other Google APIs (Google Fit) before finishing login
+        try {
+          await GoogleFitService.testGoogleFitAccess(response.access_token);
+          console.log("✅ Google Fit API access successful!");
+        } catch (fitError) {
+          console.warn("⚠️ Google Fit API access failed:", fitError);
+        }
+
+        handleLogin(user);
+        return;
+      } catch (backendErr) {
+        console.warn('Backend google auth failed, falling back to local flow', backendErr);
+        // Continue to fallback local handling
       }
-      
-      // The OAuth2 token flow typically doesn't provide ID tokens
-      // So we'll handle authentication using just the access token
+
+      // Fallback: handle locally if backend auth failed
       await handleGoogleAccessTokenOnly(response.access_token);
-      
+
     } catch (e: any) {
       console.error("Google OAuth2 error:", e);
       setError(e?.message || "Google OAuth2 sign-in failed");
-    } finally {
-      setIsLoading(false);
-    }
+    } 
+    // finally {
+    //   //setIsLoading(false);
+    // }
   }
 
   async function handleGoogleAccessTokenOnly(accessToken: string) {
@@ -170,11 +198,35 @@ export function LoginScreen({ onLogin }: LoginScreenProps) {
       // Get user info using the access token
       const userInfo = await GoogleFitService.getUserProfile(accessToken);
       console.log("Google user info:", userInfo);
-      
-      // Test Google Fit access
-      await GoogleFitService.testGoogleFitAccess(accessToken);
-      
-      // Create a user object directly since we have the user info and access token
+
+      // Build payload to send to backend
+      const payload = {
+        idToken: "",
+        accessToken,
+        firstName: userInfo.given_name,
+        lastName: userInfo.family_name,
+        email: userInfo.email,
+        picture: userInfo.picture,
+      } as any;
+
+      try {
+        const user = await AuthService.loginWithGoogle(payload);
+
+        // Backend auth succeeded - process Google Fit data before completing login
+        try {
+          await GoogleFitService.testGoogleFitAccess(accessToken);
+          console.log("✅ Google Fit API access successful!");
+        } catch (fitError) {
+          console.warn("⚠️ Google Fit API access failed:", fitError);
+        }
+
+        handleLogin(user);
+        return;
+      } catch (e) {
+        console.warn('Backend google auth failed, falling back to local user', e);
+      }
+
+      // If backend auth fails, fallback to a local-only user so the app remains usable
       const user: User = {
         id: userInfo.id,
         name: userInfo.name,
@@ -183,18 +235,20 @@ export function LoginScreen({ onLogin }: LoginScreenProps) {
         email: userInfo.email,
         avatar: userInfo.picture,
         provider: "google",
-        accessToken: accessToken, // Store the Google Fit access token
+        accessToken: accessToken,
         externalProvider: "google",
         dateOfBirth: null,
         gender: undefined,
         preferences: { notifications: true, outbreakAlerts: true, location: true },
         createdAt: new Date(),
         lastLogin: new Date(),
+        isDoctor: userInfo.isDoctor || false,
+        isAdmin: userInfo.isAdmin || false,
       };
-      
-      console.log("Created user from Google OAuth2:", user);
+
+      console.log("Created fallback user from Google OAuth2:", user);
       handleLogin(user);
-      
+
     } catch (e: any) {
       console.error("Error handling access token:", e);
       setError("Failed to authenticate with Google: " + (e.message || "Unknown error"));
@@ -206,19 +260,46 @@ export function LoginScreen({ onLogin }: LoginScreenProps) {
       setIsLoading(true);
       setError("");
       if (!response?.credential) throw new Error("No Google credential returned");
-      
+
       console.log("Google ID response:", response);
       console.log("Google credential (ID token):", response.credential);
       console.log("Note: ID token flow doesn't provide access token for Google Fit");
-      
-      const user = await AuthService.loginWithGoogle(response.credential);
+
+      // Decode ID token to extract claims
+      const idToken = response.credential;
+      const decode = (token: string) => {
+        try {
+          const parts = token.split('.');
+          if (parts.length < 2) return null;
+          const payload = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+          const json = decodeURIComponent(atob(payload).split('').map(function(c) {
+            return '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2);
+          }).join(''));
+          return JSON.parse(json);
+        } catch (e) {
+          return null;
+        }
+      };
+
+      const claims = decode(idToken) || {} as any;
+      const payload = {
+        idToken,
+        accessToken: undefined,
+        firstName: claims.given_name,
+        lastName: claims.family_name,
+        email: claims.email,
+        picture: claims.picture,
+      };
+
+      const user = await AuthService.loginWithGoogle(payload as any);
       handleLogin(user);
     } catch (e: any) {
       console.error("Google ID token error:", e);
       setError(e?.message || "Google sign-in failed");
-    } finally {
-      setIsLoading(false);
-    }
+    } 
+    // finally {
+    // //  setIsLoading(false);
+    // }
   }
 
   function handleGoogleLogin() {
@@ -298,9 +379,10 @@ export function LoginScreen({ onLogin }: LoginScreenProps) {
       }
     } catch (e: any) {
       setError(e?.message || "Authentication failed");
-    } finally {
-      setIsLoading(false);
-    }
+    } 
+    // finally {
+    //  // setIsLoading(false);
+    // }
   }
 
   function handleDemo() {
@@ -317,6 +399,8 @@ export function LoginScreen({ onLogin }: LoginScreenProps) {
       preferences: { notifications: true, outbreakAlerts: true, location: true },
       createdAt: new Date(),
       lastLogin: new Date(),
+      isDoctor: false,
+      isAdmin: false,
 
     };
     handleLogin(demo); // Changed from onLogin(demo)
@@ -368,15 +452,15 @@ export function LoginScreen({ onLogin }: LoginScreenProps) {
                     Continue with Google (+ Google Fit)
                   </Button>
                   
-                  {/* <Button onClick={handleTraditionalGoogleLogin} variant="outline" className="w-full h-10 text-sm" disabled={isLoading}>
+                  <Button onClick={handleTraditionalGoogleLogin} variant="outline" className="w-full h-10 text-sm" disabled={isLoading}>
                     <svg className="w-4 h-4 mr-2" viewBox="0 0 24 24">
                       <path fill="#4285f4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
                       <path fill="#34a853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
                       <path fill="#fbbc05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/>
                       <path fill="#ea4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
                     </svg>
-                    Traditional Google Sign-In (Fallback)
-                  </Button> */}
+                    Sign in with Google (ID token - no Fit access)
+                  </Button>
                 </div>
 
                 <div className="relative">
@@ -460,31 +544,27 @@ export function LoginScreen({ onLogin }: LoginScreenProps) {
 
             <Button onClick={handleDemo} variant="secondary" className="w-full h-12 text-base" disabled={isLoading}>Continue without Logging in</Button>
 
-            <div className="text-center">
+            <div className="text-center space-y-2">
               <Button variant="link" onClick={() => { setIsSignUp(!isSignUp); setError(""); }} className="text-sm" disabled={isLoading}>
                 {isSignUp ? "Already have an account? Sign in" : "Don't have an account? Sign up"}
               </Button>
+              <div className="border-t pt-2">
+                <p className="text-xs text-muted-foreground mb-2">Healthcare Provider?</p>
+                <Button 
+                  variant="link" 
+                  onClick={() => window.location.href = '/doctor-signup'} 
+                  className="text-sm text-blue-600 hover:text-blue-800"
+                  disabled={isLoading}
+                >
+                  <Stethoscope className="w-4 h-4 mr-1" />
+                  Register as a Doctor
+                </Button>
+              </div>
             </div>
           </CardContent>
         </Card>
 
-        <div className="mt-8 space-y-4">
-          <h3 className="text-center text-lg font-semibold">Why Choose AI Symptoms Checker?</h3>
-          <div className="grid gap-4">
-            <div className="flex items-start space-x-3 p-3 rounded-lg bg-white/50">
-              <CheckCircle className="w-5 h-5 text-green-600 mt-0.5" />
-              <div><h4 className="font-medium">AI-Powered Analysis</h4><p className="text-sm text-muted-foreground">Advanced machine learning for accurate symptom assessment</p></div>
-            </div>
-            <div className="flex items-start space-x-3 p-3 rounded-lg bg-white/50">
-              <Globe className="w-5 h-5 text-blue-600 mt-0.5" />
-              <div><h4 className="font-medium">Real-time Health Data</h4><p className="text-sm text-muted-foreground">Live disease outbreaks and health trends in your area</p></div>
-            </div>
-            <div className="flex items-start space-x-3 p-3 rounded-lg bg-white/50">
-              <Shield className="w-5 h-5 text-purple-600 mt-0.5" />
-              <div><h4 className="font-medium">Privacy Protected</h4><p className="text-sm text-muted-foreground">Your health data is encrypted and secure</p></div>
-            </div>
-          </div>
-        </div>
+        
       </div>
     </div>
   );

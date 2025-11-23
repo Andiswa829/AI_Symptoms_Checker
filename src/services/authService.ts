@@ -13,6 +13,8 @@ interface AuthResponse {
     dateOfBirth?: string | null;
     gender?: string;
     picture?: string | null;
+    isDoctor?: boolean;
+    isAdmin?: boolean;
   };
   externalProvider?:string;
 }
@@ -38,8 +40,9 @@ export class AuthService {
     return map(resp);
   }
 
-  static async loginWithGoogle(idToken: string, accessToken?: string): Promise<User> {
-    const resp = await ApiService.post(endpoints.auth.google, { idToken, accessToken }) as AuthResponse;
+  static async loginWithGoogle(payload: { idToken: string; accessToken?: string; firstName?: string; lastName?: string; email?: string; picture?: string }): Promise<User> {
+    // Post the full payload expected by the backend
+    const resp = await ApiService.post(endpoints.auth.google, payload) as AuthResponse;
     ApiService.setToken(resp.token);
     return map(resp);
   }
@@ -70,5 +73,7 @@ function map(resp: AuthResponse): User {
     preferences: { notifications: true, outbreakAlerts: true, location: true },
     createdAt: new Date(),
     lastLogin: new Date(),
+    isDoctor: u.isDoctor ?? false,
+    isAdmin: u.isAdmin ?? false,
   } as User;
 }

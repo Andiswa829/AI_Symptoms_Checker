@@ -2,7 +2,7 @@
 
 :root {
   --font-size: 14px;
-  --background: 32 100% 96%; /* Light Tangerine */
+  --background: #F5F5F5; /* Light grey background across the app */
   --foreground: 20 10% 10%;
   --card: #ffffff;
   --card-foreground: oklch(0.145 0 0);
@@ -126,7 +126,14 @@
 
   body {
     @apply bg-background text-foreground;
+    background-color: var(--background) !important;
+    color: rgb(var(--foreground)) !important;
   }
+}
+
+/* Ensure the app container and html also use the background variable */
+html, #root, #app {
+  background-color: var(--background) !important;
 }
 
 /**

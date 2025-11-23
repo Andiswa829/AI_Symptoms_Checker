@@ -18,7 +18,7 @@ export const config = {
 
 export const endpoints = {
   auth: {
-    google: '/api/auth/google',
+    google: '/api/auth/googleLogin',
     login: '/api/auth/login',
     register: '/api/auth/register',
     refresh: '/api/auth/refresh',
@@ -32,7 +32,7 @@ export const endpoints = {
     submit: '/api/symptoms/submit',
   },
   appointments: {
-    book: '/api/appointments/book',
+    book: '/api/appointments',
     list: '/api/appointments',
   },
   outbreaks: {

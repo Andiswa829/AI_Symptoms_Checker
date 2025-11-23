@@ -32,7 +32,7 @@ export class ApiService {
     const res = await fetch(url, { ...options, headers });
     if (res.status === 401) {
       this.clearToken();
-      throw new Error('Unauthorized');
+      throw new Error(res.statusText);
     }
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));

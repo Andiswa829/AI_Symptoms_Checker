@@ -49,6 +49,7 @@ export function OutbreakDashboard({
         severity: "high",
         category: "Respiratory Disease",
         icon: <Activity className="h-5 w-5" />,
+        symptoms: ["Persistent cough", "Chest pain", "Weight loss", "Night sweats", "Fatigue", "Fever"],
         embeddable: true
       },
       {
@@ -60,6 +61,7 @@ export function OutbreakDashboard({
         severity: "critical",
         category: "Infectious Disease",
         icon: <AlertTriangle className="h-5 w-5" />,
+        symptoms: ["Severe diarrhea", "Vomiting", "Dehydration", "Muscle cramps", "Low blood pressure"],
         embeddable: true
       },
       {
@@ -71,6 +73,7 @@ export function OutbreakDashboard({
         severity: "medium",
         category: "Vaccine-Preventable",
         icon: <Users className="h-5 w-5" />,
+        symptoms: ["High fever", "Cough", "Runny nose", "Red eyes", "Skin rash", "White spots in mouth"],
         embeddable: true
       },
       {
@@ -82,6 +85,7 @@ export function OutbreakDashboard({
         severity: "high", 
         category: "Infectious Disease",
         icon: <AlertTriangle className="h-5 w-5" />,
+        symptoms: ["Skin rash", "Fever", "Headache", "Muscle aches", "Back pain", "Swollen lymph nodes"],
         embeddable: true
       },
       {
@@ -93,6 +97,7 @@ export function OutbreakDashboard({
         severity: "medium",
         category: "Zoonotic Disease",
         icon: <Activity className="h-5 w-5" />,
+        symptoms: ["Fever", "Headache", "Nausea", "Vomiting", "Agitation", "Confusion", "Hydrophobia"],
         embeddable: true
       },
       {
@@ -104,6 +109,7 @@ export function OutbreakDashboard({
         severity: "high",
         category: "Drug Resistance",
         icon: <TrendingUp className="h-5 w-5" />,
+        symptoms: ["Persistent infection", "Treatment failure", "Prolonged illness", "Recurring symptoms"],
         embeddable: true
       }
     ],
@@ -115,6 +121,7 @@ export function OutbreakDashboard({
         embedUrl: "https://www.nicd.ac.za/sars-cov-2-wastewater-surveillance/",
         description: "COVID-19 environmental surveillance",
         icon: <Globe className="h-5 w-5 text-blue-600" />,
+        symptoms: ["Fever", "Cough", "Shortness of breath", "Loss of taste/smell", "Fatigue", "Body aches"],
         embeddable: true
       },
       {
@@ -124,6 +131,7 @@ export function OutbreakDashboard({
         embedUrl: "https://www.nicd.ac.za/mpox-wastewater-surveillance-dashboard/",
         description: "Mpox environmental detection",
         icon: <Globe className="h-5 w-5 text-orange-600" />,
+        symptoms: ["Skin lesions", "Fever", "Headache", "Muscle aches", "Swollen lymph nodes"],
         embeddable: true
       },
       {
@@ -133,6 +141,7 @@ export function OutbreakDashboard({
         embedUrl: "https://www.nicd.ac.za/measles-wastewater-surveillance-dashboard/",
         description: "Measles environmental surveillance",
         icon: <Globe className="h-5 w-5 text-green-600" />,
+        symptoms: ["High fever", "Cough", "Runny nose", "Red watery eyes", "Skin rash"],
         embeddable: true
       }
     ]
@@ -278,6 +287,19 @@ export function OutbreakDashboard({
                         </Badge>
                       </div>
                     </div>
+                    {/* Symptoms Section */}
+                    {dashboard.symptoms && dashboard.symptoms.length > 0 && (
+                      <div className="mb-4">
+                        <p className="text-xs text-muted-foreground mb-2 font-medium">Common Symptoms:</p>
+                        <div className="flex flex-wrap gap-1">
+                          {dashboard.symptoms.map((symptom: string, index: number) => (
+                            <Badge key={index} variant="outline" className="text-xs capitalize bg-blue-50 text-blue-700 border-blue-200">
+                              {symptom}
+                            </Badge>
+                          ))}
+                        </div>
+                      </div>
+                    )}
                     <div className="space-y-2">
                       <Button 
                         className="w-full"
@@ -324,6 +346,19 @@ export function OutbreakDashboard({
                         <h4 className="font-medium text-sm">{dashboard.name}</h4>
                       </div>
                       <p className="text-xs text-muted-foreground">{dashboard.description}</p>
+                      {/* Symptoms Section */}
+                      {dashboard.symptoms && dashboard.symptoms.length > 0 && (
+                        <div className="mb-2">
+                          <p className="text-xs text-muted-foreground mb-2 font-medium">Common Symptoms:</p>
+                          <div className="flex flex-wrap gap-1">
+                            {dashboard.symptoms.map((symptom: string, index: number) => (
+                              <Badge key={index} variant="outline" className="text-xs capitalize bg-green-50 text-green-700 border-green-200">
+                                {symptom}
+                              </Badge>
+                            ))}
+                          </div>
+                        </div>
+                      )}
                       <div className="space-y-2">
                         <Button 
                           className="w-full"

@@ -188,76 +188,8 @@ export function HealthDataCollection({
       console.error('Error collecting health data:', error);
       setShowSyncOptions(true); // Show options again on error
       
-      // Show error but provide fallback with mock data
-      setCurrentStep(`Error: ${error.message || 'Failed to sync health data'}`);
-      
-      // Generate fallback data
-      const fallbackData: HealthMetrics = {
-        heartRate: {
-          current: 72,
-          resting: 65,
-          max: 180,
-          status: "normal",
-          lastReading: new Date()
-        },
-        bloodPressure: {
-          systolic: 120,
-          diastolic: 80,
-          status: "normal",
-          lastReading: new Date()
-        },
-        oxygenSaturation: {
-          percentage: 98,
-          status: "normal",
-          lastReading: new Date()
-        },
-        bodyTemperature: {
-          celsius: 36.5,
-          fahrenheit: 97.7,
-          status: "normal",
-          lastReading: new Date()
-        },
-        sleepData: {
-          hoursLastNight: 7.5,
-          quality: "good",
-          deepSleepMinutes: 90,
-          remSleepMinutes: 112,
-          lastUpdated: new Date(Date.now() - 8 * 3600000)
-        },
-        activityLevel: {
-          steps: 0,
-          activeMinutes: 0,
-          caloriesBurned: 0,
-          lastSync: new Date()
-        },
-        respiratoryRate: {
-          breathsPerMinute: 16,
-          status: "normal",
-          lastReading: new Date()
-        },
-        stressLevel: {
-          score: 30,
-          status: "low",
-          lastUpdated: new Date()
-        }
-      };
-      
-      // Auto-populate manual form with fallback data
-      setManualData({
-        heartRate: fallbackData.heartRate.current.toString(),
-        systolic: fallbackData.bloodPressure.systolic.toString(),
-        diastolic: fallbackData.bloodPressure.diastolic.toString(),
-        oxygenSaturation: fallbackData.oxygenSaturation.percentage.toString(),
-        temperature: fallbackData.bodyTemperature.celsius.toString(),
-        sleepHours: fallbackData.sleepData.hoursLastNight.toString(),
-        sleepQuality: fallbackData.sleepData.quality,
-        steps: fallbackData.activityLevel.steps.toString(),
-        stressLevel: fallbackData.stressLevel.score.toString()
-      });
-      
-      setHealthData(fallbackData);
-      setIsDataSynced(true);
-      onDataCollected(fallbackData);
+      // Show error message - do NOT auto-populate with fallback data
+      alert(`Failed to sync Google Health data: ${error.message || 'Unknown error'}. Please try manual entry or skip.`);
     } finally {
       setIsLoading(false);
     }

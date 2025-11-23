@@ -218,9 +218,9 @@ export function WelcomeScreen({ onGetStarted, outbreakCount = 0, location, user,
               <div className="w-12 h-12 bg-primary text-primary-foreground rounded-full flex items-center justify-center mx-auto mb-3">
                 2
               </div>
-              <h3 className="mb-2">Answer Questions</h3>
+              <h3 className="mb-2">Add Additional data</h3>
               <p className="text-sm text-muted-foreground">
-                Our AI will ask follow-up questions to better understand your condition
+                Add more data to better understand your condition
               </p>
             </div>
             <div className="text-center">
@@ -293,11 +293,11 @@ export function WelcomeScreen({ onGetStarted, outbreakCount = 0, location, user,
         </CardContent>
       </Card>
 
-      <div className="text-center">
+      {/* <div className="text-center">
         <p className="text-sm text-muted-foreground">
           By continuing, you acknowledge that you have read and understand our medical disclaimer
         </p>
-      </div>
+      </div> */}
     </div>
   );
 }

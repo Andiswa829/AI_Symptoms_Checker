@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Button } from './ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card';
 import { Input } from './ui/input';
@@ -18,14 +18,17 @@ import {
   CheckCircle,
   AlertCircle,
   User,
-  FileText
+  FileText,
+  Loader2
 } from 'lucide-react';
-import { Appointment, Doctor, Symptom } from '../types/doctor';
+import { Appointment, Doctor, Symptom, AppointmentAvailability } from '../types/doctor';
+import { ApiService } from '../utils/api';
+import { endpoints } from '../config/env';
 
 interface AppointmentBookingProps {
   doctor: Doctor;
   symptoms: Symptom[];
-  onBookAppointment: (appointment: Omit<Appointment, 'id' | 'status' | 'reminderSent'>) => Appointment;
+  onBookAppointment: (appointment: Omit<Appointment, 'id' | 'status' | 'reminderSent' | 'patient'>) => Appointment;
   onBack: () => void;
   onComplete: () => void;
 }
@@ -47,24 +50,148 @@ export function AppointmentBooking({
   const [isBooking, setIsBooking] = useState(false);
   const [bookingComplete, setBookingComplete] = useState(false);
   const [bookedAppointment, setBookedAppointment] = useState<Appointment | null>(null);
+  const [bookingError, setBookingError] = useState('');
+  const [availability, setAvailability] = useState<AppointmentAvailability[]>([]);
+  const [loadingAvailability, setLoadingAvailability] = useState(false);
+  const [availabilityError, setAvailabilityError] = useState('');
+  // New: available times returned by the availableSlots endpoint (array of ISO datetimes)
+  const [availableTimes, setAvailableTimes] = useState<{ time: string; id: string }[]>([]);
+  const [loadingAvailableTimes, setLoadingAvailableTimes] = useState(false);
+  const [availableTimesError, setAvailableTimesError] = useState('');
 
-  // Get available time slots for selected date
-  const getAvailableSlots = (date: Date) => {
-    const dayName = date.toLocaleDateString('en-US', { weekday: 'long' });
-    return doctor.availability[dayName] || [];
+  // Fetch doctor availability
+  const fetchDoctorAvailability = async (doctorId: string) => {
+    try {
+      setLoadingAvailability(true);
+      setAvailabilityError('');
+      const response = await ApiService.get(`/api/Appointments/${doctorId}/availability`);
+      console.log('Fetched availability:', response);
+      setAvailability(response);
+    } catch (error) {
+      console.error('Failed to fetch doctor availability:', error);
+      setAvailabilityError('Failed to load doctor availability. Please try again.');
+    } finally {
+      setLoadingAvailability(false);
+    }
   };
 
-  const availableSlots = selectedDate ? getAvailableSlots(selectedDate) : [];
+  // Load availability when component mounts or doctor changes
+  useEffect(() => {
+    console.log('Doctor ID changed, fetching availability for doctor:', doctor.id);
+    if (doctor.id) {
+      fetchDoctorAvailability(doctor.id);
+    }
+  }, [doctor.id]);
 
+  // Fetch availableSlots (ISO datetime strings) for the selected date from the API
+  const fetchAvailableSlotsForDate = async (doctorId: string, date: Date) => {
+    try {
+      setLoadingAvailableTimes(true);
+      setAvailableTimesError('');
+
+      // Build date param as a full ISO timestamp with milliseconds and 'Z' (UTC)
+      // Example: "2025-11-23T00:00:00.000Z" or "2025-11-23T19:59:50.568Z"
+      const y = date.getFullYear();
+      const m = date.getMonth(); // zero-based
+      const d = date.getDate();
+      const dateAtMidnightUtc = new Date(Date.UTC(y, m, d, 0, 0, 0, 0));
+      const dateParam = dateAtMidnightUtc.toISOString();
+
+      const encoded = encodeURIComponent(dateParam);
+      const url = `/api/Appointments/${doctorId}/availableSlots?date=${encoded}`;
+      console.log('Fetching availableSlots from:', url);
+      const resp = await ApiService.get(url) as string[];
+      console.log('availableSlots response:', resp);
+
+      // Response is array of ISO datetimes like "2025-11-23T15:30:00"
+      const times = (resp || []).map((dt: string) => {
+        const parts = dt.split('T');
+        const timePart = parts[1] ? parts[1].slice(0,5) : dt; // HH:MM
+        return { time: timePart, id: dt };
+      });
+
+      setAvailableTimes(times);
+    } catch (err) {
+      console.error('Failed to fetch availableSlots:', err);
+      setAvailableTimes([]);
+      setAvailableTimesError('Failed to load available times.');
+    } finally {
+      setLoadingAvailableTimes(false);
+    }
+  };
+
+  // Trigger fetching availableSlots when selectedDate or doctor changes
+  useEffect(() => {
+    if (!doctor.id || !selectedDate) {
+      setAvailableTimes([]);
+      return;
+    }
+
+    fetchAvailableSlotsForDate(doctor.id, selectedDate);
+  }, [doctor.id, selectedDate]);
+
+  // Get available time slots for selected date from API data
+  const getAvailableSlots = (date: Date) => {
+    console.log('Calculating available slots for date:', date);
+    console.log('All availability data:', availability);
+    if (!availability.length) return [];
+    
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    const selectedDateString = `${year}-${month}-${day}`;
+    console.log('Selected date string:', selectedDateString);
+    
+    const daySlots = availability.filter(slot => {
+      // Extract just the date part in case slot.date includes time
+      const slotDateOnly = typeof slot.date === 'string' ? slot.date.split('T')[0] : slot.date;
+      console.log('Comparing slot date:', slotDateOnly, 'with selected date:', selectedDateString, 'isAvailable:', slot.isAvailable);
+      return slotDateOnly === selectedDateString && slot.isAvailable;
+    });
+    
+    console.log('Filtered day slots:', daySlots);
+    
+    const slots: { time: string; id: string }[] = [];
+    daySlots.forEach(slot => {
+      const slotDateOnly = typeof slot.date === 'string' ? slot.date.split('T')[0] : slot.date;
+      const start = new Date(`${slotDateOnly}T${slot.startTime}`);
+      const end = new Date(`${slotDateOnly}T${slot.endTime}`);
+      console.log('Creating slots from', slot.startTime, 'to', slot.endTime, 'start:', start, 'end:', end);
+      const slotDuration = 30 * 60 * 1000; // 30 minutes in milliseconds
+      
+      let current = new Date(start);
+      while (current < end) {
+        const timeSlot = {
+          time: String(current.getHours()).padStart(2, '0') + ':' + String(current.getMinutes()).padStart(2, '0'),
+          id: `${slot.id}-${current.toISOString()}`
+        };
+        slots.push(timeSlot);
+        current = new Date(current.getTime() + slotDuration);
+      }
+    });
+    
+    console.log('Generated time slots:', slots);
+    return slots;
+  };
+
+  const handleDateChange = (date: Date | undefined) => {
+    setSelectedDate(date);
+    setSelectedTime(''); // Reset selected time when date changes
+  };
+
+
+  // Prefer availableTimes from the availableSlots endpoint; fallback to existing availability parsing
+  const availableSlots = availableTimes.length > 0
+    ? availableTimes
+    : (selectedDate ? getAvailableSlots(selectedDate) : []);
+console.log('Available slots for selected date:', availableSlots);
   const handleBooking = async () => {
     if (!selectedDate || !selectedTime || !patientName || !patientEmail || !patientPhone) {
       return;
     }
 
     setIsBooking(true);
-
-    // Simulate API call delay
-    await new Promise(resolve => setTimeout(resolve, 2000));
+    setBookingError('');
 
     const appointmentData = {
       doctorId: doctor.id,
@@ -78,10 +205,38 @@ export function AppointmentBooking({
       notes
     };
 
-    const newAppointment = onBookAppointment(appointmentData);
-    setBookedAppointment(newAppointment);
-    setIsBooking(false);
-    setBookingComplete(true);
+    // Try to include the logged-in user's id in the API payload if available
+    let userId: string | null = null;
+    try {
+      const stored = localStorage.getItem('user');
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        userId = parsed?.id ?? null;
+      }
+    } catch (err) {
+      console.warn('Failed to read user from localStorage', err);
+      userId = null;
+    }
+
+    // Send userId to the backend but avoid adding it to the object passed to onBookAppointment
+    const apiPayload = userId ? { ...appointmentData, userId } : appointmentData;
+
+    try {
+      // Attempt to persist the appointment to the API (include userId in API payload when available)
+      const resp = await ApiService.post(endpoints.appointments.book, apiPayload);
+      console.log('Appointment booked via API:', resp);
+      // If API returns an appointment object, use that as the booked appointment
+      const createdAppointment = (resp as Appointment) || onBookAppointment(appointmentData);
+      // Notify parent (for demo storage) and set state
+      const newAppointment = onBookAppointment(appointmentData);
+      setBookedAppointment(createdAppointment || newAppointment);
+      setBookingComplete(true);
+    } catch (error: any) {
+      console.error('Failed to book appointment:', error);
+      setBookingError(error?.message || 'Failed to book appointment. Please try again.');
+    } finally {
+      setIsBooking(false);
+    }
   };
 
   const isFormValid = () => {
@@ -352,30 +507,56 @@ export function AppointmentBooking({
                   <Calendar
                     mode="single"
                     selected={selectedDate}
-                    onSelect={setSelectedDate}
+                    onSelect={handleDateChange}
                     disabled={(date: Date) => {
-                      const day = date.getDay();
-                      const dayName = date.toLocaleDateString('en-US', { weekday: 'long' });
-                      return date < new Date() || !doctor.availability[dayName]?.length;
+                      return date < new Date();
                     }}
                     className="rounded-md border"
                   />
                 </div>
                 
                 <div>
-                  <Label className="text-sm mb-2 block">Available Times</Label>
+                  <div className="flex items-center justify-between mb-2">
+                    <Label className="text-sm">Available Times</Label>
+                    {availabilityError && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => fetchDoctorAvailability(doctor.id)}
+                        disabled={loadingAvailability}
+                      >
+                        {loadingAvailability ? (
+                          <Loader2 className="h-3 w-3 animate-spin" />
+                        ) : (
+                          'Retry'
+                        )}
+                      </Button>
+                    )}
+                  </div>
                   {selectedDate ? (
-                    availableSlots.length > 0 ? (
+                    loadingAvailability ? (
+                      <div className="flex items-center justify-center p-4">
+                        <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                        <span className="text-sm text-muted-foreground">Loading available times...</span>
+                      </div>
+                    ) : availabilityError ? (
+                      <Alert>
+                        <AlertCircle className="h-4 w-4" />
+                        <AlertDescription>
+                          {availabilityError}
+                        </AlertDescription>
+                      </Alert>
+                    ) : availableSlots.length > 0 ? (
                       <div className="grid grid-cols-2 gap-2">
-                        {availableSlots.map((slot: string) => (
+                        {availableSlots.map((slot: { time: string; id: string }) => (
                           <Button
-                            key={slot}
-                            variant={selectedTime === slot ? "default" : "outline"}
+                            key={slot.id}
+                            variant={selectedTime === slot.time ? "default" : "outline"}
                             size="sm"
-                            onClick={() => setSelectedTime(slot)}
+                            onClick={() => setSelectedTime(slot.time)}
                             className="text-sm"
                           >
-                            {slot}
+                            {slot.time}
                           </Button>
                         ))}
                       </div>
@@ -474,6 +655,14 @@ export function AppointmentBooking({
                 </div>
               </CardContent>
             </Card>
+          )}
+
+          {/* Booking Error */}
+          {bookingError && (
+            <Alert>
+              <AlertCircle className="h-4 w-4" />
+              <AlertDescription>{bookingError}</AlertDescription>
+            </Alert>
           )}
 
           {/* Book Button */}
